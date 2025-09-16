@@ -36,11 +36,13 @@ app.use(
 // ---------- CSRF Protection ----------
 const csrfProtection = csrf({
    cookie: {
+      key: "_csrf", // 👈 make sure cookie name is consistent
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production", // ✅ HTTPS only in prod
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // ✅ allow cross-origin in prod
+      secure: process.env.NODE_ENV === "production", // true on Vercel
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // 👈 allow cross-site
    },
 });
+
 
 // Route to fetch CSRF token
 app.get("/api/csrf-token", csrfProtection, (req, res) => {
