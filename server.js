@@ -38,8 +38,8 @@ const csrfProtection = csrf({
    cookie: {
       key: "_csrf",
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      secure: process.env.NODE_ENV === "production", // true on Vercel
+      sameSite: "none", // <-- important for cross-site
    },
 });
 
