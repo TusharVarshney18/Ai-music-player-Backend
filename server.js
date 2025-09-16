@@ -33,22 +33,24 @@ app.use(
    })
 );
 
-app.use(csrf({
+// ---------- CSRF Protection ----------
+const csrfProtection = csrf({
    cookie: {
-      key: "_csrf",
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production", // only true on Vercel
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
    },
-}));
+});
 
-// Public route just to fetch token
+// Route to fetch CSRF token
 app.get("/api/csrf-token", csrfProtection, (req, res) => {
    res.json({ csrfToken: req.csrfToken() });
 });
 
-// Protect only mutating routes
-app.use(["/api/auth", "/api/other-protected"], (req, res, next) => {
+
+
+// Apply CSRF only for mutating requests
+app.use((req, res, next) => {
    if (["POST", "PUT", "DELETE"].includes(req.method)) {
       return csrfProtection(req, res, next);
    }
@@ -60,13 +62,12 @@ app.use("/api/auth", authRoutes);
 
 // Test route
 app.get("/", (req, res) => {
-   res.json({ message: "AI Music Player Backend is running 🚀" });
+   res.json({ ok: true });
 });
 
 // ---------- DB & Server ----------
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI
-
 mongoose
    .connect(MONGO_URI, { dbName: process.env.MONGO_DB || "music_app" })
    .then(() => {
