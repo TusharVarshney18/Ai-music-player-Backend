@@ -61,8 +61,8 @@ app.use((req, res, next) => {
 app.use("/api/auth", authRoutes);
 
 // Test route
-app.get("/ping", (req, res) => {
-   res.json({ ok: true });
+app.get("/", (req, res) => {
+   res.json({ message: "AI Music Player Backend is running 🚀" });
 });
 
 // ---------- DB & Server ----------
