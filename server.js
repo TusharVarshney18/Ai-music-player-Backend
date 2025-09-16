@@ -33,15 +33,14 @@ app.use(
    })
 );
 
-// CSRF setup
-const csrfProtection = csrf({
+app.use(csrf({
    cookie: {
       key: "_csrf",
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production", // true on Vercel
-      sameSite: "none", // <-- important for cross-site
+      secure: process.env.NODE_ENV === "production", // only true on Vercel
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
    },
-});
+}));
 
 // Public route just to fetch token
 app.get("/api/csrf-token", csrfProtection, (req, res) => {
