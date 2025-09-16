@@ -9,6 +9,7 @@ import hpp from "hpp";
 import cookieParser from "cookie-parser";
 import csrf from "csurf";
 
+
 import authRoutes from "./routes/auth.js";
 
 const app = express();
@@ -35,24 +36,22 @@ app.use(
 // ---------- CSRF Protection ----------
 const csrfProtection = csrf({
    cookie: {
-      key: "_csrf",
+      key: "_csrf", // 👈 make sure cookie name is consistent
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      secure: process.env.NODE_ENV === "production", // true on Vercel
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // 👈 allow cross-site
    },
 });
 
-// Route to fetch CSRF token and set it as a cookie
+
+// Route to fetch CSRF token
 app.get("/api/csrf-token", csrfProtection, (req, res) => {
-   res.cookie("_csrf", req.csrfToken(), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-   });
    res.json({ csrfToken: req.csrfToken() });
 });
 
-// Apply CSRF protection to mutating requests (POST, PUT, DELETE)
+
+
+// Apply CSRF only for mutating requests
 app.use((req, res, next) => {
    if (["POST", "PUT", "DELETE"].includes(req.method)) {
       return csrfProtection(req, res, next);
@@ -70,16 +69,13 @@ app.get("/", (req, res) => {
 
 // ---------- DB & Server ----------
 const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI;
+const MONGO_URI = process.env.MONGO_URI
 
 mongoose
    .connect(MONGO_URI, { dbName: process.env.MONGO_DB || "music_app" })
    .then(() => {
       app.listen(PORT, () =>
-         console.log(
-            `✅ Server running on http://localhost:${PORT}`,
-            `\n✅ Connected to MongoDB`
-         )
+         console.log(`✅ Server running on http://localhost:${PORT}`, `\n✅ Connected to MongoDB`)
       );
    })
    .catch((err) => {
