@@ -37,8 +37,8 @@ app.use(
 const csrfProtection = csrf({
    cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      secure: process.env.NODE_ENV === "production", // ✅ HTTPS only in prod
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // ✅ allow cross-origin in prod
    },
 });
 
