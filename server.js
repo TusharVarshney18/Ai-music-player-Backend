@@ -33,26 +33,23 @@ app.use(
    })
 );
 
-// ---------- CSRF Protection ----------
+// CSRF setup
 const csrfProtection = csrf({
    cookie: {
-      key: "_csrf", // 👈 make sure cookie name is consistent
+      key: "_csrf",
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production", // true on Vercel
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // 👈 allow cross-site
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
    },
 });
 
-
-// Route to fetch CSRF token
+// Public route just to fetch token
 app.get("/api/csrf-token", csrfProtection, (req, res) => {
    res.json({ csrfToken: req.csrfToken() });
 });
 
-
-
-// Apply CSRF only for mutating requests
-app.use((req, res, next) => {
+// Protect only mutating routes
+app.use(["/api/auth", "/api/other-protected"], (req, res, next) => {
    if (["POST", "PUT", "DELETE"].includes(req.method)) {
       return csrfProtection(req, res, next);
    }
