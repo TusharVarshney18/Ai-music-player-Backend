@@ -71,6 +71,14 @@ app.use((req, res, next) => {
 // ---------- Routes ----------
 app.use("/api/auth", authRoutes);
 
+// Debug route (check cookies + headers)
+app.get("/api/debug-cookies", (req, res) => {
+   res.json({
+      cookies: req.cookies,
+      headers: req.headers,
+   });
+});
+
 // Test route
 app.get("/", (req, res) => {
    res.json({ ok: true });
