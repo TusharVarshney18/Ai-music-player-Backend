@@ -50,7 +50,7 @@ const csrfProtection = csrf({
    cookie: {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
    },
 });
 
@@ -59,8 +59,6 @@ app.get("/api/csrf-token", csrfProtection, (req, res) => {
    res.json({ csrfToken: req.csrfToken() });
 });
 
-
-
 // Apply CSRF only for mutating requests
 app.use((req, res, next) => {
    if (["POST", "PUT", "DELETE"].includes(req.method)) {
@@ -68,6 +66,7 @@ app.use((req, res, next) => {
    }
    next();
 });
+
 
 // ---------- Routes ----------
 app.use("/api/auth", authRoutes);
