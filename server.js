@@ -24,9 +24,21 @@ app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
 
 // Setup CORS BEFORE CSRF
+const allowedOrigins = [
+   "http://localhost:3000",
+   "https://your-frontend.vercel.app",
+   "https://www.postman.com"
+];
+
 app.use(
    cors({
-      origin: FRONTEND_ORIGIN,
+      origin: (origin, callback) => {
+         if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+         } else {
+            callback(new Error("Not allowed by CORS"));
+         }
+      },
       credentials: true,
       methods: ["GET", "POST", "PUT", "DELETE"],
       allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
