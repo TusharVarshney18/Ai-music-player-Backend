@@ -61,12 +61,16 @@ app.get("/api/csrf-token", csrfProtection, (req, res) => {
 
 // Apply CSRF only for mutating requests
 app.use((req, res, next) => {
+   const skipPaths = ["/api/auth/login", "/api/auth/register"];
+   if (skipPaths.includes(req.path)) {
+      return next();
+   }
+
    if (["POST", "PUT", "DELETE"].includes(req.method)) {
       return csrfProtection(req, res, next);
    }
    next();
 });
-
 
 // ---------- Routes ----------
 app.use("/api/auth", authRoutes);
