@@ -8,7 +8,7 @@ import helmet from "helmet";
 import hpp from "hpp";
 import cookieParser from "cookie-parser";
 import csrf from "csurf";
-
+import avatarRoutes from "./routes/avatar.js";
 
 import authRoutes from "./routes/auth.js";
 
@@ -29,6 +29,11 @@ const allowedOrigins = [
    "https://your-frontend.vercel.app",
    "https://www.postman.com"
 ];
+
+
+// ---------- Routes ----------
+app.use("/api/auth", authRoutes);
+app.use("/api/avatar", avatarRoutes); // ✅ mount avatar route
 
 app.use(
    cors({
@@ -59,21 +64,23 @@ app.get("/api/csrf-token", csrfProtection, (req, res) => {
    res.json({ csrfToken: req.csrfToken() });
 });
 
-// Apply CSRF only for mutating requests
+// Apply CSRF to all requests except login/register
 app.use((req, res, next) => {
-   const skipPaths = ["/api/auth/login", "/api/auth/register"];
+   const skipPaths = ["/api/auth/login", "/api/auth/register", "/api/csrf-token"];
    if (skipPaths.includes(req.path)) {
       return next();
    }
 
-   if (["POST", "PUT", "DELETE"].includes(req.method)) {
+   // Protect all state-changing methods
+   if (["POST", "PUT", "DELETE", "PATCH"].includes(req.method)) {
       return csrfProtection(req, res, next);
    }
+
    next();
 });
 
-// ---------- Routes ----------
-app.use("/api/auth", authRoutes);
+
+
 
 // Debug route (check cookies + headers)
 app.get("/api/debug-cookies", (req, res) => {

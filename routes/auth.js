@@ -8,6 +8,9 @@ import { body, validationResult } from "express-validator";
 import rateLimit from "express-rate-limit";
 import User from "../models/User.js";
 
+
+
+
 const router = express.Router();
 const {
    JWT_ACCESS_SECRET,
@@ -246,6 +249,83 @@ router.post("/logout", async (req, res) => {
    }
 });
 
+
+// ------- CHANGE PASSWORD -------
+router.post(
+   "/change-password",
+   [
+      body("oldPassword").isString(),
+      body("newPassword").isString().isLength({ min: 6 }),
+   ],
+   async (req, res) => {
+      const at = req.cookies.access_token;
+      if (!at) return res.status(401).json({ error: "Unauthorized" });
+
+      try {
+         const payload = jwt.verify(at, JWT_ACCESS_SECRET);
+         const { oldPassword, newPassword } = req.body;
+
+         const user = await User.findById(payload.sub);
+         if (!user) return res.status(404).json({ error: "User not found" });
+
+         const ok = await argon2.verify(user.passwordHash, oldPassword);
+         if (!ok) return res.status(400).json({ error: "Old password incorrect" });
+
+         user.passwordHash = await argon2.hash(newPassword, ARGON_OPTS);
+         await user.save();
+
+         return res.json({ message: "Password updated successfully" });
+      } catch (err) {
+         console.error("Change password error:", err);
+         return res.status(500).json({ error: "Server error" });
+      }
+   }
+);
+
+
+// ------- UPDATE PROFILE -------
+router.put(
+   "/me",
+   [
+      body("displayName").optional().isString().isLength({ min: 1, max: 48 }),
+      body("avatarUrl").optional().isURL().withMessage("Invalid avatar URL"),
+   ],
+   async (req, res) => {
+      const at = req.cookies.access_token;
+      if (!at) return res.status(401).json({ error: "Unauthorized" });
+
+      try {
+         const payload = jwt.verify(at, JWT_ACCESS_SECRET);
+         const errors = validationResult(req);
+         if (!errors.isEmpty()) return res.status(400).json({ error: "Invalid input" });
+
+         const { displayName, avatarUrl } = req.body;
+         const update = {};
+         if (displayName) update.displayName = displayName;
+         if (avatarUrl) update.avatarUrl = avatarUrl;
+
+         const user = await User.findByIdAndUpdate(payload.sub, update, { new: true }).lean();
+         if (!user) return res.status(404).json({ error: "User not found" });
+
+         return res.json({
+            message: "Profile updated",
+            user: {
+               id: user._id,
+               username: user.username,
+               displayName: user.displayName,
+               avatarUrl: user.avatarUrl,
+            },
+         });
+      } catch (err) {
+         console.error("Update profile error:", err);
+         return res.status(500).json({ error: "Server error" });
+      }
+   }
+);
+
+
+
+
 // ------- ME -------
 router.get("/me", async (req, res) => {
    const at = req.cookies.access_token;
@@ -254,10 +334,23 @@ router.get("/me", async (req, res) => {
       const payload = jwt.verify(at, JWT_ACCESS_SECRET);
       const user = await User.findById(payload.sub).lean();
       if (!user) return res.status(401).json({ error: "Unauthorized" });
-      return res.json({ user: { id: user._id, username: user.username, roles: user.roles } });
+      return res.json({
+         user: {
+            id: user._id,
+            username: user.username,
+            displayName: user.displayName,
+            avatarUrl: user.avatarUrl,
+            roles: user.roles,
+         },
+      });
    } catch (err) {
       return res.status(401).json({ error: "Unauthorized" });
    }
 });
+
+
+
+
+
 
 export default router;
