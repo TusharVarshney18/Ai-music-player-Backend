@@ -23,30 +23,11 @@ app.use(hpp());
 app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
 
-// ---------- CORS (must be BEFORE routes + CSRF) ----------
-const allowedOrigins = [
-   "http://localhost:3000",
-   "https://your-frontend.vercel.app",
-   "https://www.postman.com",
-];
 
-app.use(
-   cors({
-      origin: (origin, callback) => {
-         if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-         } else {
-            callback(new Error("Not allowed by CORS"));
-         }
-      },
-      credentials: true,
-      methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
-   })
-);
+const allowedOrigins = ["http://localhost:3000", "https://your-frontend.vercel.app", "https://www.postman.com"];
+app.use(cors({ origin: (origin, callback) => { if (!origin || allowedOrigins.includes(origin)) { callback(null, true); } else { callback(new Error("Not allowed by CORS")); } }, credentials: true, methods: ["GET", "POST", "PUT", "DELETE"], allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"], }));
 
-// ✅ Handle preflight requests globally
-app.options("*", cors());
+
 
 // ---------- CSRF Protection ----------
 const csrfProtection = csrf({
