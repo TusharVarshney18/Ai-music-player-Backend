@@ -45,7 +45,7 @@ app.get("/api/csrf-token", csrfProtection, (req, res) => {
 
 // Apply CSRF to all requests except login/register
 app.use((req, res, next) => {
-   const skipPaths = ["/api/auth/login", "/api/auth/register", "/api/csrf-token"];
+   const skipPaths = ["/api/auth/login", "/api/auth/register", "/api/csrf-token", "/api/avatar"];
    if (skipPaths.includes(req.path)) {
       return next();
    }
