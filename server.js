@@ -8,8 +8,8 @@ import helmet from "helmet";
 import hpp from "hpp";
 import cookieParser from "cookie-parser";
 import csrf from "csurf";
-import avatarRoutes from "./routes/avatar.js";
 
+import avatarRoutes from "./routes/avatar.js";
 import authRoutes from "./routes/auth.js";
 
 const app = express();
@@ -23,17 +23,12 @@ app.use(hpp());
 app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
 
-// Setup CORS BEFORE CSRF
+// ---------- CORS (must be BEFORE routes + CSRF) ----------
 const allowedOrigins = [
    "http://localhost:3000",
    "https://your-frontend.vercel.app",
-   "https://www.postman.com"
+   "https://www.postman.com",
 ];
-
-
-// ---------- Routes ----------
-app.use("/api/auth", authRoutes);
-app.use("/api/avatar", avatarRoutes); // ✅ mount avatar route
 
 app.use(
    cors({
@@ -45,10 +40,13 @@ app.use(
          }
       },
       credentials: true,
-      methods: ["GET", "POST", "PUT", "DELETE"],
+      methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
    })
 );
+
+// ✅ Handle preflight requests globally
+app.options("*", cors());
 
 // ---------- CSRF Protection ----------
 const csrfProtection = csrf({
@@ -71,7 +69,6 @@ app.use((req, res, next) => {
       return next();
    }
 
-   // Protect all state-changing methods
    if (["POST", "PUT", "DELETE", "PATCH"].includes(req.method)) {
       return csrfProtection(req, res, next);
    }
@@ -79,8 +76,9 @@ app.use((req, res, next) => {
    next();
 });
 
-
-
+// ---------- Routes ----------
+app.use("/api/auth", authRoutes);
+app.use("/api/avatar", avatarRoutes);
 
 // Debug route (check cookies + headers)
 app.get("/api/debug-cookies", (req, res) => {
@@ -97,12 +95,16 @@ app.get("/", (req, res) => {
 
 // ---------- DB & Server ----------
 const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI
+const MONGO_URI = process.env.MONGO_URI;
+
 mongoose
    .connect(MONGO_URI, { dbName: process.env.MONGO_DB || "music_app" })
    .then(() => {
       app.listen(PORT, () =>
-         console.log(`✅ Server running on http://localhost:${PORT}`, `\n✅ Connected to MongoDB`)
+         console.log(
+            `✅ Server running on http://localhost:${PORT}`,
+            `\n✅ Connected to MongoDB`
+         )
       );
    })
    .catch((err) => {
