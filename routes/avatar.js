@@ -5,8 +5,11 @@ import User from "../models/User.js";
 
 const router = express.Router();
 
-// Use memory storage (file kept in memory, not disk)
-const upload = multer({ storage: multer.memoryStorage() });
+// Multer with memory storage + size limit (2MB)
+const upload = multer({
+   storage: multer.memoryStorage(),
+   limits: { fileSize: 2 * 1024 * 1024 },
+});
 
 // Upload endpoint
 router.post("/", upload.single("avatar"), async (req, res) => {
@@ -23,23 +26,37 @@ router.post("/", upload.single("avatar"), async (req, res) => {
                transformation: [{ width: 200, height: 200, crop: "fill" }],
             },
             (error, result) => {
-               if (error) reject(error);
-               else resolve(result);
+               if (error) {
+                  console.error("Cloudinary error:", error);
+                  reject(new Error("Cloudinary upload failed"));
+               } else {
+                  resolve(result);
+               }
             }
          );
          stream.end(req.file.buffer);
       });
 
-      // Save avatar URL to user (if userId provided)
+      // Save avatar URL to user (better: take userId from auth middleware)
       const userId = req.body.userId;
+      let updatedUser = null;
+
       if (userId) {
-         await User.findByIdAndUpdate(userId, { avatar: result.secure_url });
+         updatedUser = await User.findByIdAndUpdate(
+            userId,
+            { avatar: result.secure_url },
+            { new: true }
+         ).select("-password");
       }
 
-      return res.json({ url: result.secure_url });
+      return res.json({
+         success: true,
+         url: result.secure_url,
+         user: updatedUser,
+      });
    } catch (err) {
       console.error("Avatar upload error:", err);
-      return res.status(500).json({ error: "Upload failed" });
+      return res.status(500).json({ error: err.message || "Upload failed" });
    }
 });
 

@@ -24,7 +24,12 @@ app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
 
 
-const allowedOrigins = ["http://localhost:3000", "https://your-frontend.vercel.app", "https://www.postman.com"];
+const allowedOrigins = [
+   "http://localhost:3000",
+   "https://ai-music-player-frontend.vercel.app", // your deployed frontend
+   "https://ai-music-player-backend.vercel.app",  // backend domain
+   "https://www.postman.com",
+];
 
 
 app.use(cors({
