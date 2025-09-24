@@ -67,7 +67,7 @@ app.get("/api/csrf-token", csrfProtection, (req, res) => {
 
 // Apply CSRF to all requests except login/register
 app.use((req, res, next) => {
-   const skipPaths = ["/api/auth/login", "/api/auth/register", "/api/avatar"];
+   const skipPaths = ["/api/auth/login", "/api/auth/register", "/api/avatar", "/api/auth/me"];
    if (skipPaths.includes(req.path)) {
       return next();
    }
@@ -83,7 +83,7 @@ app.use((req, res, next) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/avatar", avatarRoutes);
 
-console.log(cors());
+
 
 // Debug route (check cookies + headers)
 app.get("/api/debug-cookies", (req, res) => {
