@@ -15,6 +15,15 @@ import authRoutes from "./routes/auth.js";
 const app = express();
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:3000";
 
+const allowedOrigins = [
+   "http://localhost:3000",
+   "https://ai-music-player-frontend.vercel.app", // your deployed frontend
+   "https://ai-music-player-backend.vercel.app",
+   "http://localhost:5000",  // backend domain
+   "https://www.postman.com",
+];
+
+
 // ---------- Middlewares ----------
 app.disable("x-powered-by");
 app.use(helmet());
@@ -24,12 +33,6 @@ app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
 
 
-const allowedOrigins = [
-   "http://localhost:3000",
-   "https://ai-music-player-frontend.vercel.app", // your deployed frontend
-   "https://ai-music-player-backend.vercel.app",  // backend domain
-   "https://www.postman.com",
-];
 
 
 app.use(cors({
@@ -64,7 +67,7 @@ app.get("/api/csrf-token", csrfProtection, (req, res) => {
 
 // Apply CSRF to all requests except login/register
 app.use((req, res, next) => {
-   const skipPaths = ["/api/auth/login", "/api/auth/register", "/api/csrf-token", "/api/avatar"];
+   const skipPaths = ["/api/auth/login", "/api/auth/register", "/api/avatar"];
    if (skipPaths.includes(req.path)) {
       return next();
    }
@@ -79,6 +82,8 @@ app.use((req, res, next) => {
 // ---------- Routes ----------
 app.use("/api/auth", authRoutes);
 app.use("/api/avatar", avatarRoutes);
+
+console.log(cors());
 
 // Debug route (check cookies + headers)
 app.get("/api/debug-cookies", (req, res) => {

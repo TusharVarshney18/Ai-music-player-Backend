@@ -6,6 +6,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { body, validationResult } from "express-validator";
 import rateLimit from "express-rate-limit";
+import authMiddleware from "../middleware/auth.js";
 import User from "../models/User.js";
 
 
@@ -327,13 +328,11 @@ router.put(
 
 
 // ------- ME -------
-router.get("/me", async (req, res) => {
-   const at = req.cookies.access_token;
-   if (!at) return res.status(401).json({ error: "Unauthorized" });
+router.get("/me", authMiddleware, async (req, res) => {
    try {
-      const payload = jwt.verify(at, JWT_ACCESS_SECRET);
-      const user = await User.findById(payload.sub).lean();
+      const user = await User.findById(req.user.id).lean();
       if (!user) return res.status(401).json({ error: "Unauthorized" });
+
       return res.json({
          user: {
             id: user._id,
@@ -344,7 +343,8 @@ router.get("/me", async (req, res) => {
          },
       });
    } catch (err) {
-      return res.status(401).json({ error: "Unauthorized" });
+      console.error("ME route error:", err);
+      return res.status(500).json({ error: "Server error" });
    }
 });
 
