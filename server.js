@@ -46,7 +46,12 @@ app.use(cors({
    },
    credentials: true,
    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-   allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
+   allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-CSRF-Token",
+      "csrf-token"  // ✅ allow lowercase
+   ],
 }));
 
 
@@ -65,9 +70,15 @@ app.get("/api/csrf-token", csrfProtection, (req, res) => {
    res.json({ csrfToken: req.csrfToken() });
 });
 
-// Apply CSRF to all requests except login/register
+// Apply CSRF to all requests except login/register/avatar
 app.use((req, res, next) => {
-   const skipPaths = ["/api/auth/login", "/api/auth/register", "/api/avatar", "/api/auth/me"];
+   const skipPaths = ["/api/auth/login", "/api/auth/register"];
+
+   // ✅ allow avatar upload (and any subroutes)
+   if (req.path.startsWith("/api/avatar")) {
+      return next();
+   }
+
    if (skipPaths.includes(req.path)) {
       return next();
    }

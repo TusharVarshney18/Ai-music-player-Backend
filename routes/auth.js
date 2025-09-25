@@ -7,17 +7,11 @@ import crypto from "crypto";
 import { body, validationResult } from "express-validator";
 import rateLimit from "express-rate-limit";
 import authMiddleware from "../middleware/auth.js";
+import { setAuthCookies } from "../utils/authCookies.js"; // ✅ keep single source
 import User from "../models/User.js";
 
-
-
-
 const router = express.Router();
-const {
-   JWT_ACCESS_SECRET,
-   JWT_REFRESH_SECRET,
-   NODE_ENV,
-} = process.env;
+const { JWT_ACCESS_SECRET, JWT_REFRESH_SECRET } = process.env;
 
 if (!JWT_ACCESS_SECRET || !JWT_REFRESH_SECRET) {
    console.error("Missing JWT secrets in .env (JWT_ACCESS_SECRET, JWT_REFRESH_SECRET)");
@@ -28,17 +22,10 @@ if (!JWT_ACCESS_SECRET || !JWT_REFRESH_SECRET) {
 const ACCESS_TTL_SECONDS = 15 * 60; // 15 minutes
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-const baseCookie = {
-   httpOnly: true,
-   secure: NODE_ENV === "production",
-   sameSite: "strict",
-   path: "/",
-};
-
-// Argon2 options (adjust for your environment)
+// Argon2 options
 const ARGON_OPTS = {
    type: argon2.argon2id,
-   memoryCost: 2 ** 16, // 64MB
+   memoryCost: 2 ** 16,
    timeCost: 3,
    parallelism: 1,
 };
@@ -63,9 +50,11 @@ router.use(ipLimiter);
 
 // --- Helpers ---
 function signAccessToken(user) {
-   return jwt.sign({ sub: user._id.toString(), username: user.username, roles: user.roles }, JWT_ACCESS_SECRET, {
-      expiresIn: ACCESS_TTL_SECONDS,
-   });
+   return jwt.sign(
+      { sub: user._id.toString(), username: user.username, roles: user.roles },
+      JWT_ACCESS_SECRET,
+      { expiresIn: ACCESS_TTL_SECONDS }
+   );
 }
 
 function signRefreshToken(user, jti) {
@@ -74,31 +63,12 @@ function signRefreshToken(user, jti) {
    });
 }
 
-function setAuthCookies(res, accessToken, refreshToken) {
-   res.cookie("access_token", accessToken, { ...baseCookie, maxAge: ACCESS_TTL_SECONDS * 1000 });
-   res.cookie("refresh_token", refreshToken, { ...baseCookie, maxAge: REFRESH_TTL_MS });
-}
-
-// Validate input
 const registerValidator = [
-   body("username")
-      .isString()
-      .isLength({ min: 3, max: 48 })
-      .trim()
-      .toLowerCase(),
-
-   // simpler password rule → only min length
-   body("password")
-      .isString()
-      .isLength({ min: 6 })
-      .withMessage("Password must be at least 6 characters"),
+   body("username").isString().isLength({ min: 3, max: 48 }).trim().toLowerCase(),
+   body("password").isString().isLength({ min: 6 }).withMessage("Password must be at least 6 characters"),
 ];
 
-
-const loginValidator = [
-   body("username").isString().trim().toLowerCase(),
-   body("password").isString(),
-];
+const loginValidator = [body("username").isString().trim().toLowerCase(), body("password").isString()];
 
 const isLocked = (user) => user.lockUntil && user.lockUntil > new Date();
 
@@ -111,15 +81,16 @@ router.post("/register", authLimiter, registerValidator, async (req, res) => {
       const { username, password } = req.body;
 
       const existing = await User.findOne({ username }).lean();
-      if (existing) return res.status(400).json({ error: "Invalid input" }); // generic message
+      if (existing) return res.status(400).json({ error: "Invalid input" });
 
       const passwordHash = await argon2.hash(password, ARGON_OPTS);
       const user = await User.create({ username, passwordHash });
 
-      // Issue tokens on registration (optional)
+      // Tokens
       const jti = crypto.randomUUID();
       const refreshToken = signRefreshToken(user, jti);
       const accessToken = signAccessToken(user);
+
       const rtHash = crypto.createHash("sha256").update(refreshToken).digest("hex");
       const expiresAt = new Date(Date.now() + REFRESH_TTL_MS);
 
@@ -143,23 +114,19 @@ router.post("/login", authLimiter, loginValidator, async (req, res) => {
       const user = await User.findOne({ username });
 
       if (!user) return res.status(401).json({ error: "Invalid credentials" });
-
-      if (isLocked(user)) {
-         return res.status(403).json({ error: "Account temporarily locked. Try later." });
-      }
+      if (isLocked(user)) return res.status(403).json({ error: "Account temporarily locked. Try later." });
 
       const ok = await argon2.verify(user.passwordHash, password);
       if (!ok) {
          user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
          if (user.failedLoginAttempts >= 5) {
-            user.lockUntil = new Date(Date.now() + 15 * 60 * 1000); // lock 15 minutes
+            user.lockUntil = new Date(Date.now() + 15 * 60 * 1000);
             user.failedLoginAttempts = 0;
          }
          await user.save();
          return res.status(401).json({ error: "Invalid credentials" });
       }
 
-      // success
       user.failedLoginAttempts = 0;
       user.lockUntil = null;
 
@@ -200,7 +167,6 @@ router.post("/refresh", async (req, res) => {
       const presentedHash = crypto.createHash("sha256").update(rt).digest("hex");
       const record = user.refreshTokens.find((t) => t.tokenHash === presentedHash && t.expiresAt > new Date());
 
-      // reuse detection
       if (!record) {
          user.refreshTokens = [];
          await user.save();
@@ -209,7 +175,6 @@ router.post("/refresh", async (req, res) => {
          return res.status(401).json({ error: "Session invalidated" });
       }
 
-      // rotation: remove old, add new
       user.refreshTokens = user.refreshTokens.filter((t) => t.tokenHash !== presentedHash);
 
       const newJti = crypto.randomUUID();
@@ -242,7 +207,7 @@ router.post("/logout", async (req, res) => {
          }
       }
    } catch (err) {
-      // ignore parse errors
+      // ignore
    } finally {
       res.clearCookie("access_token");
       res.clearCookie("refresh_token");
@@ -250,82 +215,63 @@ router.post("/logout", async (req, res) => {
    }
 });
 
-
 // ------- CHANGE PASSWORD -------
-router.post(
-   "/change-password",
-   [
-      body("oldPassword").isString(),
-      body("newPassword").isString().isLength({ min: 6 }),
-   ],
-   async (req, res) => {
-      const at = req.cookies.access_token;
-      if (!at) return res.status(401).json({ error: "Unauthorized" });
+router.post("/change-password", [body("oldPassword").isString(), body("newPassword").isString().isLength({ min: 6 })], async (req, res) => {
+   const at = req.cookies.access_token;
+   if (!at) return res.status(401).json({ error: "Unauthorized" });
 
-      try {
-         const payload = jwt.verify(at, JWT_ACCESS_SECRET);
-         const { oldPassword, newPassword } = req.body;
+   try {
+      const payload = jwt.verify(at, JWT_ACCESS_SECRET);
+      const { oldPassword, newPassword } = req.body;
 
-         const user = await User.findById(payload.sub);
-         if (!user) return res.status(404).json({ error: "User not found" });
+      const user = await User.findById(payload.sub);
+      if (!user) return res.status(404).json({ error: "User not found" });
 
-         const ok = await argon2.verify(user.passwordHash, oldPassword);
-         if (!ok) return res.status(400).json({ error: "Old password incorrect" });
+      const ok = await argon2.verify(user.passwordHash, oldPassword);
+      if (!ok) return res.status(400).json({ error: "Old password incorrect" });
 
-         user.passwordHash = await argon2.hash(newPassword, ARGON_OPTS);
-         await user.save();
+      user.passwordHash = await argon2.hash(newPassword, ARGON_OPTS);
+      await user.save();
 
-         return res.json({ message: "Password updated successfully" });
-      } catch (err) {
-         console.error("Change password error:", err);
-         return res.status(500).json({ error: "Server error" });
-      }
+      return res.json({ message: "Password updated successfully" });
+   } catch (err) {
+      console.error("Change password error:", err);
+      return res.status(500).json({ error: "Server error" });
    }
-);
-
+});
 
 // ------- UPDATE PROFILE -------
-router.put(
-   "/me",
-   [
-      body("displayName").optional().isString().isLength({ min: 1, max: 48 }),
-      body("avatarUrl").optional().isURL().withMessage("Invalid avatar URL"),
-   ],
-   async (req, res) => {
-      const at = req.cookies.access_token;
-      if (!at) return res.status(401).json({ error: "Unauthorized" });
+router.put("/me", [body("displayName").optional().isString().isLength({ min: 1, max: 48 }), body("avatarUrl").optional().isURL().withMessage("Invalid avatar URL")], async (req, res) => {
+   const at = req.cookies.access_token;
+   if (!at) return res.status(401).json({ error: "Unauthorized" });
 
-      try {
-         const payload = jwt.verify(at, JWT_ACCESS_SECRET);
-         const errors = validationResult(req);
-         if (!errors.isEmpty()) return res.status(400).json({ error: "Invalid input" });
+   try {
+      const payload = jwt.verify(at, JWT_ACCESS_SECRET);
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) return res.status(400).json({ error: "Invalid input" });
 
-         const { displayName, avatarUrl } = req.body;
-         const update = {};
-         if (displayName) update.displayName = displayName;
-         if (avatarUrl) update.avatarUrl = avatarUrl;
+      const { displayName, avatarUrl } = req.body;
+      const update = {};
+      if (displayName) update.displayName = displayName;
+      if (avatarUrl) update.avatarUrl = avatarUrl;
 
-         const user = await User.findByIdAndUpdate(payload.sub, update, { new: true }).lean();
-         if (!user) return res.status(404).json({ error: "User not found" });
+      const user = await User.findByIdAndUpdate(payload.sub, update, { new: true }).lean();
+      if (!user) return res.status(404).json({ error: "User not found" });
 
-         return res.json({
-            message: "Profile updated",
-            user: {
-               id: user._id,
-               username: user.username,
-               displayName: user.displayName,
-               avatarUrl: user.avatarUrl,
-            },
-         });
-      } catch (err) {
-         console.error("Update profile error:", err);
-         return res.status(500).json({ error: "Server error" });
-      }
+      return res.json({
+         message: "Profile updated",
+         user: {
+            id: user._id,
+            username: user.username,
+            displayName: user.displayName,
+            avatarUrl: user.avatarUrl,
+         },
+      });
+   } catch (err) {
+      console.error("Update profile error:", err);
+      return res.status(500).json({ error: "Server error" });
    }
-);
-
-
-
+});
 
 // ------- ME -------
 router.get("/me", authMiddleware, async (req, res) => {
@@ -347,10 +293,5 @@ router.get("/me", authMiddleware, async (req, res) => {
       return res.status(500).json({ error: "Server error" });
    }
 });
-
-
-
-
-
 
 export default router;

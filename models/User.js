@@ -36,9 +36,14 @@ const UserSchema = new mongoose.Schema(
       },
       passwordHash: { type: String, required: true },
 
+      // 👇 Avatar info
       avatarUrl: {
          type: String,
-         default: "", // URL for avatar (Cloudinary / S3 / local uploads)
+         default: "", // Cloudinary / S3 / local
+      },
+      avatarPublicId: {
+         type: String,
+         default: "", // needed to delete/replace old images
       },
 
       roles: { type: [String], default: ["user"] },

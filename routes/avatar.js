@@ -1,6 +1,6 @@
 import express from "express";
 import multer from "multer";
-import jwt from "jsonwebtoken";   // ✅ add this
+import jwt from "jsonwebtoken";
 import cloudinary from "../config/cloudinary.js";
 import User from "../models/User.js";
 
@@ -49,7 +49,20 @@ router.post(
             return res.status(401).json({ error: "Invalid or expired token" });
          }
 
-         // ✅ Upload to Cloudinary
+         // ✅ Find user
+         const user = await User.findById(payload.sub);
+         if (!user) return res.status(404).json({ error: "User not found" });
+
+         // ✅ Delete old avatar if exists
+         if (user.avatarPublicId) {
+            try {
+               await cloudinary.uploader.destroy(user.avatarPublicId);
+            } catch (err) {
+               console.warn("⚠️ Failed to delete old avatar:", err.message);
+            }
+         }
+
+         // ✅ Upload new avatar to Cloudinary
          const result = await new Promise((resolve, reject) => {
             const stream = cloudinary.uploader.upload_stream(
                {
@@ -68,17 +81,21 @@ router.post(
             stream.end(req.file.buffer);
          });
 
-         // ✅ Save avatar URL to user
-         const updatedUser = await User.findByIdAndUpdate(
-            payload.sub,
-            { avatarUrl: result.secure_url },
-            { new: true }
-         ).select("-passwordHash");
+         // ✅ Save avatar URL + public_id to user
+         user.avatarUrl = result.secure_url;
+         user.avatarPublicId = result.public_id;
+         await user.save();
 
          return res.json({
             message: "Avatar uploaded successfully",
             avatarUrl: result.secure_url,
-            user: updatedUser,
+            user: {
+               _id: user._id,
+               username: user.username,
+               displayName: user.displayName,
+               avatarUrl: user.avatarUrl,
+               roles: user.roles,
+            },
          });
       } catch (err) {
          console.error("Avatar upload error:", err);
