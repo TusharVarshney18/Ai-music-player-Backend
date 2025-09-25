@@ -294,4 +294,38 @@ router.get("/me", authMiddleware, async (req, res) => {
    }
 });
 
+
+
+// Remove Avatar Route
+router.post("/remove", async (req, res) => {
+   try {
+      const token = req.cookies.access_token;
+      if (!token) return res.status(401).json({ error: "Unauthorized" });
+
+      let payload;
+      try {
+         payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
+      } catch (err) {
+         return res.status(401).json({ error: "Invalid or expired token" });
+      }
+
+      // Reset avatar URL in DB
+      const updatedUser = await User.findByIdAndUpdate(
+         payload.sub,
+         { avatarUrl: "" },
+         { new: true }
+      ).select("username displayName avatarUrl roles");
+
+      return res.json({
+         message: "Avatar removed",
+         avatarUrl: "",
+         user: updatedUser,
+      });
+   } catch (err) {
+      console.error("❌ Remove avatar error:", err);
+      return res.status(500).json({ error: "Failed to remove avatar" });
+   }
+});
+
+
 export default router;
