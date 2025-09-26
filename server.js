@@ -96,13 +96,13 @@ app.use("/api/avatar", avatarRoutes);
 
 
 
-// Debug route (check cookies + headers)
-app.get("/api/debug-cookies", (req, res) => {
-   res.json({
-      cookies: req.cookies,
-      headers: req.headers,
-   });
-});
+// // Debug route (check cookies + headers)
+// app.get("/api/debug-cookies", (req, res) => {
+//    res.json({
+//       cookies: req.cookies,
+//       headers: req.headers,
+//    });
+// });
 
 // Test route
 app.get("/", (req, res) => {
