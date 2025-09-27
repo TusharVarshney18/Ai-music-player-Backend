@@ -7,7 +7,6 @@ import mongoose from "mongoose";
 import helmet from "helmet";
 import hpp from "hpp";
 import cookieParser from "cookie-parser";
-import csrf from "csurf";
 
 import avatarRoutes from "./routes/avatar.js";
 import authRoutes from "./routes/auth.js";
@@ -17,12 +16,11 @@ const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:3000";
 
 const allowedOrigins = [
    "http://localhost:3000",
-   "https://ai-music-player-frontend.vercel.app", // your deployed frontend
-   "https://ai-music-player-backend.vercel.app",
-   "http://localhost:5000",  // backend domain
+   "https://ai-music-player-frontend.vercel.app", // frontend
+   "https://ai-music-player-backend.vercel.app", // backend (vercel)
+   "http://localhost:5000",
    "https://www.postman.com",
 ];
-
 
 // ---------- Middlewares ----------
 app.disable("x-powered-by");
@@ -32,77 +30,25 @@ app.use(hpp());
 app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
 
-
-
-
-app.use(cors({
-   origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-         callback(null, true);
-      } else {
-         console.log("❌ CORS blocked:", origin);
-         callback(new Error("Not allowed by CORS"));
-      }
-   },
-   credentials: true,
-   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-   allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "X-CSRF-Token",
-      "csrf-token"  // ✅ allow lowercase
-   ],
-}));
-
-
-
-// ---------- CSRF Protection ----------
-const csrfProtection = csrf({
-   cookie: {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-   },
-});
-
-// Route to fetch CSRF token
-app.get("/api/csrf-token", csrfProtection, (req, res) => {
-   res.json({ csrfToken: req.csrfToken() });
-});
-
-// Apply CSRF to all requests except login/register/avatar
-app.use((req, res, next) => {
-   const skipPaths = ["/api/auth/login", "/api/auth/register"];
-
-   // ✅ allow avatar upload (and any subroutes)
-   if (req.path.startsWith("/api/avatar")) {
-      return next();
-   }
-
-   if (skipPaths.includes(req.path)) {
-      return next();
-   }
-
-   if (["POST", "PUT", "DELETE", "PATCH"].includes(req.method)) {
-      return csrfProtection(req, res, next);
-   }
-
-   next();
-});
+app.use(
+   cors({
+      origin: (origin, callback) => {
+         if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+         } else {
+            console.log("❌ CORS blocked:", origin);
+            callback(new Error("Not allowed by CORS"));
+         }
+      },
+      credentials: true,
+      methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization"],
+   })
+);
 
 // ---------- Routes ----------
 app.use("/api/auth", authRoutes);
 app.use("/api/avatar", avatarRoutes);
-
-
-
-// // Debug route (check cookies + headers)
-// app.get("/api/debug-cookies", (req, res) => {
-//    res.json({
-//       cookies: req.cookies,
-//       headers: req.headers,
-//    });
-// });
 
 // Test route
 app.get("/", (req, res) => {
