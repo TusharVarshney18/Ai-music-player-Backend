@@ -1,8 +1,9 @@
+// routes/avatar.js
 import express from "express";
 import multer from "multer";
-import jwt from "jsonwebtoken";
 import cloudinary from "../config/cloudinary.js";
 import User from "../models/User.js";
+import authMiddleware from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -18,14 +19,17 @@ const upload = multer({
    },
 });
 
-// Avatar upload route
+// ✅ Avatar upload route
 router.post(
    "/",
+   authMiddleware,
    (req, res, next) => {
       upload.single("avatar")(req, res, (err) => {
          if (err) {
             if (err.code === "LIMIT_FILE_SIZE") {
-               return res.status(413).json({ error: "File too large. Max size is 2MB" });
+               return res
+                  .status(413)
+                  .json({ error: "File too large. Max size is 2MB" });
             }
             return res.status(400).json({ error: err.message });
          }
@@ -38,19 +42,7 @@ router.post(
             return res.status(400).json({ error: "No file uploaded" });
          }
 
-         // ✅ Verify user from access token
-         const token = req.cookies.access_token;
-         if (!token) return res.status(401).json({ error: "Unauthorized" });
-
-         let payload;
-         try {
-            payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
-         } catch (err) {
-            return res.status(401).json({ error: "Invalid or expired token" });
-         }
-
-         // ✅ Find user
-         const user = await User.findById(payload.sub);
+         const user = await User.findById(req.user.id);
          if (!user) return res.status(404).json({ error: "User not found" });
 
          // ✅ Delete old avatar if exists
@@ -88,12 +80,12 @@ router.post(
 
          return res.json({
             message: "Avatar uploaded successfully",
-            avatarUrl: result.secure_url,
+            avatarUrl: user.avatarUrl,
             user: {
-               _id: user._id,
+               id: user._id,
                username: user.username,
                displayName: user.displayName,
-               avatarUrl: user.avatarUrl,
+               avatarUrl: user.avatarUrl || "/default-avatar.png",
                roles: user.roles,
             },
          });
@@ -104,22 +96,10 @@ router.post(
    }
 );
 
-
-
-// Remove avatar route
-router.post("/remove", async (req, res) => {
+// ✅ Remove avatar route
+router.post("/remove", authMiddleware, async (req, res) => {
    try {
-      const token = req.cookies.access_token;
-      if (!token) return res.status(401).json({ error: "Unauthorized" });
-
-      let payload;
-      try {
-         payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
-      } catch (err) {
-         return res.status(401).json({ error: "Invalid or expired token" });
-      }
-
-      const user = await User.findById(payload.sub);
+      const user = await User.findById(req.user.id);
       if (!user) return res.status(404).json({ error: "User not found" });
 
       // Delete from Cloudinary if exists
@@ -140,10 +120,10 @@ router.post("/remove", async (req, res) => {
          message: "Avatar removed",
          avatarUrl: "",
          user: {
-            _id: user._id,
+            id: user._id,
             username: user.username,
             displayName: user.displayName,
-            avatarUrl: user.avatarUrl,
+            avatarUrl: "/default-avatar.png",
             roles: user.roles,
          },
       });
@@ -152,6 +132,5 @@ router.post("/remove", async (req, res) => {
       return res.status(500).json({ error: "Failed to remove avatar" });
    }
 });
-
 
 export default router;
