@@ -22,6 +22,10 @@ const allowedOrigins = [
    "https://www.postman.com",
 ];
 
+// Trust proxy headers (needed for Vercel, Render, Nginx, etc.)
+app.set("trust proxy", 1);
+
+
 // ---------- Middlewares ----------
 app.disable("x-powered-by");
 app.use(helmet());
