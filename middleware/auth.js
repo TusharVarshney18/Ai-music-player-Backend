@@ -9,10 +9,10 @@ if (!JWT_ACCESS_SECRET) {
 
 export default function authMiddleware(req, res, next) {
    try {
-      // First check cookies
+      // 🔑 Look for access_token in cookies first
       let token = req.cookies?.access_token;
 
-      // If not in cookies, check Authorization header
+      // Or in Authorization header
       if (!token && req.headers.authorization) {
          const parts = req.headers.authorization.split(" ");
          if (parts.length === 2 && parts[0] === "Bearer") {
@@ -24,13 +24,8 @@ export default function authMiddleware(req, res, next) {
          return res.status(401).json({ error: "Unauthorized" });
       }
 
-      // Verify token
-      let payload;
-      try {
-         payload = jwt.verify(token, JWT_ACCESS_SECRET);
-      } catch {
-         return res.status(401).json({ error: "Unauthorized" });
-      }
+      // ✅ Verify access token
+      const payload = jwt.verify(token, JWT_ACCESS_SECRET);
 
       req.user = {
          id: payload.sub || payload.id,
@@ -40,7 +35,11 @@ export default function authMiddleware(req, res, next) {
 
       return next();
    } catch (err) {
+      // ⏰ If expired, frontend will catch 401 and call /auth/refresh
+      if (err.name === "TokenExpiredError") {
+         return res.status(401).json({ error: "Token expired" });
+      }
       console.error("authMiddleware error:", err);
-      return res.status(500).json({ error: "Server error" });
+      return res.status(401).json({ error: "Unauthorized" });
    }
 }
