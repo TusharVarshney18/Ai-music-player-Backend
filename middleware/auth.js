@@ -33,7 +33,7 @@ export default function authMiddleware(req, res, next) {
       }
 
       req.user = {
-         id: payload.sub,
+         id: payload.sub || payload.id,
          username: payload.username,
          roles: payload.roles || [],
       };
