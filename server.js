@@ -7,7 +7,7 @@ import mongoose from "mongoose";
 import helmet from "helmet";
 import hpp from "hpp";
 import cookieParser from "cookie-parser";
-
+import musicRoutes from "./routes/music.js";  // 👈 add this
 import avatarRoutes from "./routes/avatar.js";
 import authRoutes from "./routes/auth.js";
 
@@ -53,6 +53,7 @@ app.use(
 // ---------- Routes ----------
 app.use("/api/auth", authRoutes);
 app.use("/api/avatar", avatarRoutes);
+app.use("/api/music", musicRoutes);
 
 // Test route
 app.get("/", (req, res) => {
