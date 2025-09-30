@@ -7,17 +7,6 @@ const RefreshTokenSchema = new mongoose.Schema({
    userAgent: String,
 });
 
-// 🎵 Song schema for uploaded tracks
-const SongSchema = new mongoose.Schema(
-   {
-      title: { type: String, required: true },
-      artist: { type: String, default: "Unknown Artist" },
-      url: { type: String, required: true }, // Cloudinary link
-      publicId: { type: String, required: true }, // Cloudinary ID for deletion
-   },
-   { _id: false } // avoid creating extra _id for each song
-);
-
 const UserSchema = new mongoose.Schema(
    {
       username: {
@@ -35,7 +24,7 @@ const UserSchema = new mongoose.Schema(
          minlength: 1,
          maxlength: 48,
          default: function () {
-            return this.username; // fallback to username
+            return this.username;
          },
       },
       email: {
@@ -51,9 +40,7 @@ const UserSchema = new mongoose.Schema(
       avatarUrl: { type: String, default: "" },
       avatarPublicId: { type: String, default: "" },
 
-      // 🎵 Songs uploaded by user
-      songs: { type: [SongSchema], default: [] },
-
+      // ❌ Removed embedded songs → handled in Song model
       roles: { type: [String], default: ["user"] },
 
       failedLoginAttempts: { type: Number, default: 0 },
