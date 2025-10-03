@@ -7,6 +7,7 @@ const SongSchema = new mongoose.Schema(
       url: { type: String, required: true }, // Cloudinary link
       publicId: { type: String, required: true }, // Cloudinary ID for deletion
       cover: { type: String, default: "" }, // optional song cover image
+      album: { type: String, default: "Singles" },
       uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // reference uploader
    },
    { timestamps: true }
