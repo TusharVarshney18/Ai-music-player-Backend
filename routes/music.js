@@ -10,7 +10,7 @@ const router = express.Router();
 // Multer config: allow only audio files, max 15 MB
 const upload = multer({
    storage: multer.memoryStorage(),
-   limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB
+   limits: { fileSize: 15 * 1024 * 1024 },
    fileFilter: (req, file, cb) => {
       if (!file.mimetype.startsWith("audio/")) {
          return cb(new Error("Only audio files are allowed"));
@@ -49,7 +49,7 @@ router.post(
          const result = await new Promise((resolve, reject) => {
             const stream = cloudinary.uploader.upload_stream(
                {
-                  resource_type: "video", // for audio files
+                  resource_type: "video",
                   folder: "songs",
                },
                (error, result) => {
@@ -64,10 +64,12 @@ router.post(
             stream.end(req.file.buffer);
          });
 
-         // ✅ Save to global Song collection
+         // ✅ Save to MongoDB
          const newSong = await Song.create({
             title: req.body.title || req.file.originalname,
             artist: req.body.artist || "Unknown Artist",
+            album: req.body.album || "Singles",
+            cover: req.body.cover || "",
             url: result.secure_url,
             publicId: result.public_id,
             uploadedBy: user._id,
@@ -85,7 +87,7 @@ router.post(
 );
 
 /**
- * 🎵 Get ALL songs (public, like Spotify)
+ * 🎧 Get all songs (public, like Spotify)
  */
 router.get("/", async (req, res) => {
    try {
@@ -98,14 +100,55 @@ router.get("/", async (req, res) => {
 });
 
 /**
- * 🎵 Delete a song (only uploader or admin can delete)
+ * 🔍 Search songs by title, artist, or album
+ */
+router.get("/search", async (req, res) => {
+   try {
+      const query = req.query.q?.trim() || "";
+      if (!query) return res.json({ songs: [] });
+
+      const songs = await Song.find({
+         $or: [
+            { title: { $regex: query, $options: "i" } },
+            { artist: { $regex: query, $options: "i" } },
+            { album: { $regex: query, $options: "i" } },
+         ],
+      }).populate("uploadedBy", "username displayName");
+
+      res.json({ songs });
+   } catch (err) {
+      console.error("Search error:", err);
+      res.status(500).json({ error: "Failed to search songs" });
+   }
+});
+
+/**
+ * 💿 Get songs by album name
+ */
+router.get("/album/:albumName", async (req, res) => {
+   try {
+      const { albumName } = req.params;
+      const songs = await Song.find({ album: albumName }).populate("uploadedBy", "username displayName");
+
+      if (!songs.length) {
+         return res.status(404).json({ error: "No songs found for this album" });
+      }
+
+      res.json({ album: albumName, songs });
+   } catch (err) {
+      console.error("Album fetch error:", err);
+      res.status(500).json({ error: "Failed to fetch album songs" });
+   }
+});
+
+/**
+ * ❌ Delete a song (only uploader or admin)
  */
 router.delete("/:id", authMiddleware, async (req, res) => {
    try {
       const song = await Song.findById(req.params.id);
       if (!song) return res.status(404).json({ error: "Song not found" });
 
-      // check if current user is uploader or admin
       const user = await User.findById(req.user.id);
       if (!user) return res.status(404).json({ error: "User not found" });
 
@@ -113,20 +156,17 @@ router.delete("/:id", authMiddleware, async (req, res) => {
          return res.status(403).json({ error: "Not authorized to delete this song" });
       }
 
-      // delete from Cloudinary
       try {
          await cloudinary.uploader.destroy(song.publicId, { resource_type: "video" });
       } catch (err) {
-         console.warn("⚠️ Failed to delete from Cloudinary:", err.message);
+         console.warn("⚠️ Cloudinary delete failed:", err.message);
       }
 
-      // remove from DB
       await song.deleteOne();
-
-      return res.json({ message: "Song deleted successfully" });
+      res.json({ message: "Song deleted successfully" });
    } catch (err) {
       console.error("Delete song error:", err);
-      return res.status(500).json({ error: "Failed to delete song" });
+      res.status(500).json({ error: "Failed to delete song" });
    }
 });
 
