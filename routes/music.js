@@ -170,4 +170,40 @@ router.delete("/:id", authMiddleware, async (req, res) => {
    }
 });
 
+
+/**
+ * ✏️ Update song details (only uploader or admin)
+ */
+router.patch("/:id", authMiddleware, async (req, res) => {
+   try {
+      const { id } = req.params;
+      const updateData = req.body; // e.g. { album: "New Album", title: "New Title" }
+
+      const song = await Song.findById(id);
+      if (!song) {
+         return res.status(404).json({ error: "Song not found" });
+      }
+
+      const user = await User.findById(req.user.id);
+      if (!user) {
+         return res.status(404).json({ error: "User not found" });
+      }
+
+      // ✅ Allow only uploader or admin
+      if (song.uploadedBy.toString() !== user._id.toString() && !user.roles.includes("admin")) {
+         return res.status(403).json({ error: "Not authorized to update this song" });
+      }
+
+      // ✅ Apply updates
+      Object.assign(song, updateData);
+      await song.save();
+
+      res.json({ message: "Song updated successfully", song });
+   } catch (err) {
+      console.error("Update song error:", err);
+      res.status(500).json({ error: "Failed to update song" });
+   }
+});
+
+
 export default router;

@@ -13,7 +13,7 @@ import authRoutes from "./routes/auth.js";
 import chatRouter from "./routes/chat.js";
 
 const app = express();
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:3000";
+
 
 const allowedOrigins = [
    "http://localhost:3000",
