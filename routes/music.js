@@ -26,7 +26,11 @@ router.post(
    "/upload",
    authMiddleware,
    (req, res, next) => {
-      upload.single("song")(req, res, (err) => {
+      // ✅ Handle both "song" and "cover" fields
+      upload.fields([
+         { name: "song", maxCount: 1 },
+         { name: "cover", maxCount: 1 },
+      ])(req, res, (err) => {
          if (err) {
             if (err.code === "LIMIT_FILE_SIZE") {
                return res.status(413).json({ error: "File too large. Max size is 15MB" });
@@ -38,45 +42,63 @@ router.post(
    },
    async (req, res) => {
       try {
-         if (!req.file) {
-            return res.status(400).json({ error: "No file uploaded" });
+         const songFile = req.files?.song?.[0];
+         const coverFile = req.files?.cover?.[0];
+
+         if (!songFile) {
+            return res.status(400).json({ error: "No song file uploaded" });
          }
 
          const user = await User.findById(req.user.id);
          if (!user) return res.status(404).json({ error: "User not found" });
 
-         // ✅ Upload to Cloudinary
-         const result = await new Promise((resolve, reject) => {
+         // ✅ Upload song to Cloudinary
+         const songUpload = await new Promise((resolve, reject) => {
             const stream = cloudinary.uploader.upload_stream(
                {
-                  resource_type: "video",
+                  resource_type: "video", // Needed for mp3/mp4 files
                   folder: "songs",
                },
                (error, result) => {
-                  if (error) {
-                     console.error("Cloudinary error:", error);
-                     reject(new Error("Cloudinary upload failed"));
-                  } else {
-                     resolve(result);
-                  }
+                  if (error) reject(error);
+                  else resolve(result);
                }
             );
-            stream.end(req.file.buffer);
+            stream.end(songFile.buffer);
          });
 
-         // ✅ Save to MongoDB
+         // ✅ Upload cover image (optional)
+         let coverUrl = "";
+         if (coverFile) {
+            const coverUpload = await new Promise((resolve, reject) => {
+               const stream = cloudinary.uploader.upload_stream(
+                  {
+                     resource_type: "image",
+                     folder: "covers",
+                  },
+                  (error, result) => {
+                     if (error) reject(error);
+                     else resolve(result);
+                  }
+               );
+               stream.end(coverFile.buffer);
+            });
+            coverUrl = coverUpload.secure_url;
+         }
+
+         // ✅ Save song entry in MongoDB
          const newSong = await Song.create({
-            title: req.body.title || req.file.originalname,
+            title: req.body.title || songFile.originalname,
             artist: req.body.artist || "Unknown Artist",
             album: req.body.album || "Singles",
-            cover: req.body.cover || "",
-            url: result.secure_url,
-            publicId: result.public_id,
+            cover: coverUrl || req.body.cover || "",
+            url: songUpload.secure_url,
+            publicId: songUpload.public_id,
             uploadedBy: user._id,
          });
 
          return res.json({
-            message: "Song uploaded successfully",
+            message: "✅ Song uploaded successfully",
             song: newSong,
          });
       } catch (err) {
@@ -85,6 +107,7 @@ router.post(
       }
    }
 );
+
 
 /**
  * 🎧 Get all songs (public, like Spotify)
@@ -112,6 +135,7 @@ router.get("/search", async (req, res) => {
             { title: { $regex: query, $options: "i" } },
             { artist: { $regex: query, $options: "i" } },
             { album: { $regex: query, $options: "i" } },
+            { cover: { $regex: query, $options: "i" } }
          ],
       }).populate("uploadedBy", "username displayName");
 
@@ -205,5 +229,121 @@ router.patch("/:id", authMiddleware, async (req, res) => {
    }
 });
 
+
+//Cover 
+
+/**
+ * 🖼️ GET /api/music/:id/cover
+ * Returns the cover image URL for a song
+ */
+router.get("/:id/cover", async (req, res) => {
+   try {
+      const song = await Song.findById(req.params.id);
+      if (!song) return res.status(404).json({ error: "Song not found" });
+
+      if (!song.cover) {
+         return res.status(404).json({ error: "This song has no cover image" });
+      }
+
+      res.json({
+         songId: song._id,
+         title: song.title,
+         cover: song.cover,
+      });
+   } catch (err) {
+      console.error("Get cover error:", err);
+      res.status(500).json({ error: "Failed to fetch cover image" });
+   }
+});
+
+
+router.put("/:id/cover", authMiddleware, upload.single("cover"), async (req, res) => {
+   try {
+      const song = await Song.findById(req.params.id);
+      if (!song) return res.status(404).json({ error: "Song not found" });
+
+      const user = await User.findById(req.user.id);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      // ✅ Permission check (uploader or admin)
+      if (song.uploadedBy.toString() !== user._id.toString() && !user.roles.includes("admin")) {
+         return res.status(403).json({ error: "Not authorized to update this cover" });
+      }
+
+      // ✅ Handle no file
+      if (!req.file) return res.status(400).json({ error: "No cover image provided" });
+
+      // ✅ Delete old cover from Cloudinary if exists
+      if (song.cover && song.cover.includes("cloudinary.com")) {
+         try {
+            const oldPublicId = song.cover.split("/").pop().split(".")[0];
+            await cloudinary.uploader.destroy(`covers/${oldPublicId}`, { resource_type: "image" });
+         } catch (err) {
+            console.warn("⚠️ Failed to delete old cover:", err.message);
+         }
+      }
+
+      // ✅ Upload new cover
+      const uploadResult = await new Promise((resolve, reject) => {
+         const stream = cloudinary.uploader.upload_stream(
+            {
+               resource_type: "image",
+               folder: "covers",
+            },
+            (error, result) => {
+               if (error) reject(error);
+               else resolve(result);
+            }
+         );
+         stream.end(req.file.buffer);
+      });
+
+      // ✅ Save in DB
+      song.cover = uploadResult.secure_url;
+      await song.save();
+
+      res.json({
+         message: "✅ Cover updated successfully",
+         cover: uploadResult.secure_url,
+      });
+   } catch (err) {
+      console.error("Cover upload error:", err);
+      res.status(500).json({ error: "Failed to upload cover" });
+   }
+});
+
+
+//cover delete 
+router.delete("/:id/cover", authMiddleware, async (req, res) => {
+   try {
+      const song = await Song.findById(req.params.id);
+      if (!song) return res.status(404).json({ error: "Song not found" });
+
+      const user = await User.findById(req.user.id);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      if (song.uploadedBy.toString() !== user._id.toString() && !user.roles.includes("admin")) {
+         return res.status(403).json({ error: "Not authorized to delete this cover" });
+      }
+
+      // ✅ Delete from Cloudinary
+      if (song.cover && song.cover.includes("cloudinary.com")) {
+         try {
+            const publicId = song.cover.split("/").pop().split(".")[0];
+            await cloudinary.uploader.destroy(`covers/${publicId}`, { resource_type: "image" });
+         } catch (err) {
+            console.warn("⚠️ Failed to delete Cloudinary cover:", err.message);
+         }
+      }
+
+      song.cover = "";
+      await song.save();
+
+      res.json({ message: "✅ Cover deleted successfully" });
+   } catch (err) {
+      console.error("Cover delete error:", err);
+      res.status(500).json({ error: "Failed to delete cover" });
+   }
+});
 
 export default router;
