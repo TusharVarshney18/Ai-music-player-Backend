@@ -10,11 +10,15 @@ const router = express.Router();
 // Multer config: allow only audio files, max 15 MB
 const upload = multer({
    storage: multer.memoryStorage(),
-   limits: { fileSize: 15 * 1024 * 1024 },
+   limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB max
    fileFilter: (req, file, cb) => {
-      if (!file.mimetype.startsWith("audio/")) {
-         return cb(new Error("Only audio files are allowed"));
+      const isAudio = file.mimetype.startsWith("audio/");
+      const isImage = file.mimetype.startsWith("image/");
+
+      if (!isAudio && !isImage) {
+         return cb(new Error("Only audio and image files are allowed"));
       }
+
       cb(null, true);
    },
 });
