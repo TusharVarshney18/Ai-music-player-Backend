@@ -2,6 +2,9 @@ import express from "express";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
+import authMiddleware from "../middleware/auth.js";
+import Song from "../models/Song.js";
+import User from "../models/User.js";
 
 dotenv.config();
 const router = express.Router();
