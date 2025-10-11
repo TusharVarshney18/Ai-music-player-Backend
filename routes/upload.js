@@ -1,7 +1,9 @@
 import express from "express";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
+import dotenv from "dotenv";
 
+dotenv.config();
 const router = express.Router();
 
 // ✅ Configure Multer (for image uploads)
