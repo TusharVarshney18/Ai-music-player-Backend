@@ -11,6 +11,7 @@ import musicRoutes from "./routes/music.js";  // 👈 add this
 import avatarRoutes from "./routes/avatar.js";
 import authRoutes from "./routes/auth.js";
 import chatRouter from "./routes/chat.js";
+import uploadRoutes from "./routes/upload.js";
 
 const app = express();
 
@@ -56,6 +57,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/avatar", avatarRoutes);
 app.use("/api/music", musicRoutes);
 app.use("/api/chat", chatRouter);
+app.use("/api/upload", uploadRoutes);
 
 // Test route
 app.get("/", (req, res) => {
