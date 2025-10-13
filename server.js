@@ -12,6 +12,7 @@ import avatarRoutes from "./routes/avatar.js";
 import authRoutes from "./routes/auth.js";
 import chatRouter from "./routes/chat.js";
 import uploadRoutes from "./routes/upload.js";
+import playlistRoutes from "./routes/playlists.js";
 
 const app = express();
 
@@ -58,6 +59,7 @@ app.use("/api/avatar", avatarRoutes);
 app.use("/api/music", musicRoutes);
 app.use("/api/chat", chatRouter);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/playlist", playlistRoutes);
 
 // Test route
 app.get("/", (req, res) => {
