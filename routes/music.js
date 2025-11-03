@@ -128,38 +128,42 @@ router.get("/", async (req, res) => {
   }
 });
 
-/**
- * 🔒 Securely stream a song (Spotify style)
- * ✅ Only serves to authenticated users
- * ✅ Backend proxies Cloudinary URL (frontend never sees it)
- */
 // routes/music.js
 router.get("/stream/:id", authMiddleware, async (req, res) => {
   try {
+    // ✅ Debug: Log incoming request
+    console.log("🎵 Stream request from user:", req.user?.id);
+    console.log("🍪 Cookies received:", Object.keys(req.cookies));
+    console.log("📍 Stream ID:", req.params.id);
+
+    // Check if authenticated
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized - No user" });
+    }
+
     const song = await Song.findById(req.params.id).select("+url");
 
     if (!song || !song.url) {
       return res.status(404).json({ error: "Song not found" });
     }
 
+    console.log("✅ Authorized - Streaming:", song.title);
+
     const fileRes = await fetch(song.url);
     if (!fileRes.ok) {
       return res.status(500).json({ error: "Failed to fetch audio" });
     }
 
-    // ✅ Set headers to prevent download
+    // ✅ Set correct headers
     res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Accept-Ranges", "none"); // ❌ Disable range requests
-    res.setHeader("Content-Disposition", "inline"); // ❌ Don't download, play inline
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Content-Disposition", "inline");
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-    res.setHeader("Pragma", "no-cache");
-    res.setHeader("Expires", "0");
-    res.setHeader("X-Content-Type-Options", "nosniff");
 
     res.status(200);
     fileRes.body.pipe(res);
   } catch (err) {
-    console.error("Stream error:", err);
+    console.error("❌ Stream error:", err.message);
     res.status(500).json({ error: "Internal server error" });
   }
 });
