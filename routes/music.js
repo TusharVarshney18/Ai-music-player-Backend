@@ -92,14 +92,19 @@ router.post(
         artist: req.body.artist || "Unknown Artist",
         album: req.body.album || "Singles",
         cover: coverUrl || req.body.cover || "",
-        url: songUpload.secure_url,
-        publicId: songUpload.public_id,
+        url: songUpload.secure_url, // ✅ Store in DB, but DON'T expose
+        publicId: songUpload.public_id, // ✅ Store in DB, but DON'T expose
         uploadedBy: user._id,
       });
 
+      // ✅ Return song WITHOUT url and publicId
+      const songResponse = newSong.toObject();
+      delete songResponse.url;
+      delete songResponse.publicId;
+
       return res.json({
         message: "✅ Song uploaded successfully",
-        song: newSong,
+        song: songResponse,
       });
     } catch (err) {
       console.error("Song upload error:", err);
@@ -110,12 +115,12 @@ router.post(
 
 /**
  * 🎧 Get all songs (public, like Spotify)
- * Only sends metadata to frontend (DO NOT use song.url for playback in client, use /api/music/stream/:id instead)
+ * ✅ NEVER expose url and publicId
  */
 router.get("/", async (req, res) => {
   try {
-    const songs = await Song.find().populate("uploadedBy", "username displayName");
-    // Optionally, exclude the .url from response here!
+    const songs = await Song.find().populate("uploadedBy", "username displayName").select("-url -publicId"); // ❌ EXCLUDE these fields
+
     return res.json({ songs });
   } catch (err) {
     console.error("Fetch songs error:", err);
@@ -125,22 +130,34 @@ router.get("/", async (req, res) => {
 
 /**
  * 🔒 Securely stream a song (Spotify style)
- * Only serves to authenticated users (via authMiddleware)
- * Usage: <audio src={`/api/music/stream/${song._id}`} />
+ * ✅ Only serves to authenticated users
+ * ✅ Backend proxies Cloudinary URL (frontend never sees it)
  */
 router.get("/stream/:id", authMiddleware, async (req, res) => {
   try {
-    const song = await Song.findById(req.params.id);
+    // ✅ Need to include url field for this query only
+    const song = await Song.findById(req.params.id).select("+url");
+
     if (!song || !song.url) {
       return res.status(404).json({ error: "Song not found" });
     }
+
+    // ✅ Log stream access for analytics
+    console.log(`🎵 Stream accessed - User: ${req.user.id}, Song: ${req.params.id}`);
+
+    // ✅ Fetch audio from Cloudinary on the backend
     const fileRes = await fetch(song.url, { method: "GET" });
+
     if (!fileRes.ok) {
       return res.status(500).json({ error: "Failed to fetch audio stream" });
     }
+
+    // ✅ Set proper headers and stream to client
     res.setHeader("Content-Type", fileRes.headers.get("Content-Type") || "audio/mpeg");
     res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.status(fileRes.status);
+
     fileRes.body.pipe(res);
   } catch (err) {
     console.error("Stream route error:", err);
@@ -150,6 +167,7 @@ router.get("/stream/:id", authMiddleware, async (req, res) => {
 
 /**
  * 🔍 Search songs by title, artist, or album
+ * ✅ NEVER expose url and publicId
  */
 router.get("/search", async (req, res) => {
   try {
@@ -157,13 +175,10 @@ router.get("/search", async (req, res) => {
     if (!query) return res.json({ songs: [] });
 
     const songs = await Song.find({
-      $or: [
-        { title: { $regex: query, $options: "i" } },
-        { artist: { $regex: query, $options: "i" } },
-        { album: { $regex: query, $options: "i" } },
-        { cover: { $regex: query, $options: "i" } },
-      ],
-    }).populate("uploadedBy", "username displayName");
+      $or: [{ title: { $regex: query, $options: "i" } }, { artist: { $regex: query, $options: "i" } }, { album: { $regex: query, $options: "i" } }],
+    })
+      .populate("uploadedBy", "username displayName")
+      .select("-url -publicId"); // ❌ EXCLUDE these fields
 
     res.json({ songs });
   } catch (err) {
@@ -174,11 +189,12 @@ router.get("/search", async (req, res) => {
 
 /**
  * 💿 Get songs by album name
+ * ✅ NEVER expose url and publicId
  */
 router.get("/album/:albumName", async (req, res) => {
   try {
     const { albumName } = req.params;
-    const songs = await Song.find({ album: albumName }).populate("uploadedBy", "username displayName");
+    const songs = await Song.find({ album: albumName }).populate("uploadedBy", "username displayName").select("-url -publicId"); // ❌ EXCLUDE these fields
 
     if (!songs.length) {
       return res.status(404).json({ error: "No songs found for this album" });
@@ -195,7 +211,7 @@ router.get("/album/:albumName", async (req, res) => {
  */
 router.delete("/:id", authMiddleware, async (req, res) => {
   try {
-    const song = await Song.findById(req.params.id);
+    const song = await Song.findById(req.params.id).select("+publicId");
     if (!song) return res.status(404).json({ error: "Song not found" });
 
     const user = await User.findById(req.user.id);
@@ -204,11 +220,13 @@ router.delete("/:id", authMiddleware, async (req, res) => {
     if (song.uploadedBy.toString() !== user._id.toString() && !user.roles.includes("admin")) {
       return res.status(403).json({ error: "Not authorized to delete this song" });
     }
+
     try {
       await cloudinary.uploader.destroy(song.publicId, { resource_type: "video" });
     } catch (err) {
       console.warn("⚠️ Cloudinary delete failed:", err.message);
     }
+
     await song.deleteOne();
     res.json({ message: "Song deleted successfully" });
   } catch (err) {
@@ -219,25 +237,40 @@ router.delete("/:id", authMiddleware, async (req, res) => {
 
 /**
  * ✏️ Update song details (only uploader or admin)
+ * ✅ Don't expose url and publicId
  */
 router.patch("/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const updateData = req.body;
+
+    // ✅ Prevent users from updating these fields
+    delete updateData.url;
+    delete updateData.publicId;
+
     const song = await Song.findById(id);
     if (!song) {
       return res.status(404).json({ error: "Song not found" });
     }
+
     const user = await User.findById(req.user.id);
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
+
     if (song.uploadedBy.toString() !== user._id.toString() && !user.roles.includes("admin")) {
       return res.status(403).json({ error: "Not authorized to update this song" });
     }
+
     Object.assign(song, updateData);
     await song.save();
-    res.json({ message: "Song updated successfully", song });
+
+    // ✅ Return song WITHOUT url and publicId
+    const songResponse = song.toObject();
+    delete songResponse.url;
+    delete songResponse.publicId;
+
+    res.json({ message: "Song updated successfully", song: songResponse });
   } catch (err) {
     console.error("Update song error:", err);
     res.status(500).json({ error: "Failed to update song" });
