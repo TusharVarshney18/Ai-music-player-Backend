@@ -7,7 +7,7 @@ import mongoose from "mongoose";
 import helmet from "helmet";
 import hpp from "hpp";
 import cookieParser from "cookie-parser";
-import musicRoutes from "./routes/music.js";
+import musicRoutes from "./routes/music.js"; // 👈 add this
 import avatarRoutes from "./routes/avatar.js";
 import authRoutes from "./routes/auth.js";
 import chatRouter from "./routes/chat.js";
@@ -18,9 +18,10 @@ const app = express();
 
 const allowedOrigins = [
   "http://localhost:3000",
-  "https://ai-music-player-frontend.vercel.app", // ✅ Frontend
-  "http://localhost:5000", // Local development
-  // ❌ Remove backend URL - it's not needed for API calls
+  "https://ai-music-player-frontend.vercel.app", // frontend
+  "https://ai-music-player-backend.vercel.app", // backend (vercel)
+  "http://localhost:5000",
+  "https://www.postman.com",
 ];
 
 // Trust proxy headers (needed for Vercel, Render, Nginx, etc.)
@@ -37,7 +38,6 @@ app.use(cookieParser());
 app.use(
   cors({
     origin: (origin, callback) => {
-      // ✅ Allow requests with no origin (like mobile apps, Postman, curl)
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
@@ -45,10 +45,9 @@ app.use(
         callback(new Error("Not allowed by CORS"));
       }
     },
-    credentials: true, // ✅ Allow credentials (cookies)
+    credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
-    optionsSuccessStatus: 200, // ✅ For preflight requests
   })
 );
 
