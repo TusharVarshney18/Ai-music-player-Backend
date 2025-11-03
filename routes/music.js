@@ -133,34 +133,33 @@ router.get("/", async (req, res) => {
  * ✅ Only serves to authenticated users
  * ✅ Backend proxies Cloudinary URL (frontend never sees it)
  */
+// routes/music.js
 router.get("/stream/:id", authMiddleware, async (req, res) => {
   try {
-    // ✅ Need to include url field for this query only
     const song = await Song.findById(req.params.id).select("+url");
 
     if (!song || !song.url) {
       return res.status(404).json({ error: "Song not found" });
     }
 
-    // ✅ Log stream access for analytics
-    console.log(`🎵 Stream accessed - User: ${req.user.id}, Song: ${req.params.id}`);
-
-    // ✅ Fetch audio from Cloudinary on the backend
-    const fileRes = await fetch(song.url, { method: "GET" });
-
+    const fileRes = await fetch(song.url);
     if (!fileRes.ok) {
-      return res.status(500).json({ error: "Failed to fetch audio stream" });
+      return res.status(500).json({ error: "Failed to fetch audio" });
     }
 
-    // ✅ Set proper headers and stream to client
-    res.setHeader("Content-Type", fileRes.headers.get("Content-Type") || "audio/mpeg");
-    res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    res.status(fileRes.status);
+    // ✅ Set headers to prevent download
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Accept-Ranges", "none"); // ❌ Disable range requests
+    res.setHeader("Content-Disposition", "inline"); // ❌ Don't download, play inline
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("X-Content-Type-Options", "nosniff");
 
+    res.status(200);
     fileRes.body.pipe(res);
   } catch (err) {
-    console.error("Stream route error:", err);
+    console.error("Stream error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
