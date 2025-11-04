@@ -217,7 +217,7 @@ router.get("/stream/:id", async (req, res) => {
     res.setHeader("Content-Disposition", 'inline; filename="song.mp3"');
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Access-Control-Allow-Origin", process.env.FRONTEND_URL);
+    res.setHeader("Access-Control-Allow-Origin", process.env.FRONTEND_ORIGIN);
     res.setHeader("Access-Control-Allow-Credentials", "true");
 
     // ✅ Return audio data
