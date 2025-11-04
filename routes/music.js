@@ -5,13 +5,15 @@ import Song from "../models/Song.js";
 import User from "../models/User.js";
 import authMiddleware from "../middleware/auth.js";
 import fetch from "node-fetch";
+import jwt from "jsonwebtoken";
 
 const router = express.Router();
+const { STREAM_SECRET = "super_secret_stream_key" } = process.env;
 
-// Multer config: allow only audio files, max 20 MB
+// Multer config: allow only audio/image files
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB max
+  limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const isAudio = file.mimetype.startsWith("audio/");
     const isImage = file.mimetype.startsWith("image/");
@@ -22,9 +24,17 @@ const upload = multer({
   },
 });
 
-/**
- * 🎵 Upload a song (requires login)
- */
+// Utility: Sign & verify short-lived stream tokens
+function signStreamToken(userId, songId, ttlSeconds = 60) {
+  return jwt.sign({ sub: userId, sid: songId }, STREAM_SECRET, {
+    expiresIn: ttlSeconds,
+  });
+}
+function verifyStreamToken(token) {
+  return jwt.verify(token, STREAM_SECRET);
+}
+
+/* ──────────────────────────────── UPLOAD ──────────────────────────────── */
 router.post(
   "/upload",
   authMiddleware,
@@ -35,7 +45,7 @@ router.post(
     ])(req, res, (err) => {
       if (err) {
         if (err.code === "LIMIT_FILE_SIZE") {
-          return res.status(413).json({ error: "File too large. Max size is 15MB" });
+          return res.status(413).json({ error: "File too large. Max size is 20MB" });
         }
         return res.status(400).json({ error: err.message });
       }
@@ -46,28 +56,25 @@ router.post(
     try {
       const songFile = req.files?.song?.[0];
       const coverFile = req.files?.cover?.[0];
-      if (!songFile) {
-        return res.status(400).json({ error: "No song file uploaded" });
-      }
+      if (!songFile) return res.status(400).json({ error: "No song file uploaded" });
+
       const user = await User.findById(req.user.id);
       if (!user) return res.status(404).json({ error: "User not found" });
 
-      // Upload song to Cloudinary
+      // Upload song (authenticated on Cloudinary)
       const songUpload = await new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
           {
             resource_type: "video",
             folder: "songs",
+            type: "authenticated", // 🔒 not publicly accessible
           },
-          (error, result) => {
-            if (error) reject(error);
-            else resolve(result);
-          }
+          (error, result) => (error ? reject(error) : resolve(result))
         );
         stream.end(songFile.buffer);
       });
 
-      // Upload cover image (optional)
+      // Upload cover (optional)
       let coverUrl = "";
       if (coverFile) {
         const coverUpload = await new Promise((resolve, reject) => {
@@ -76,142 +83,144 @@ router.post(
               resource_type: "image",
               folder: "covers",
             },
-            (error, result) => {
-              if (error) reject(error);
-              else resolve(result);
-            }
+            (error, result) => (error ? reject(error) : resolve(result))
           );
           stream.end(coverFile.buffer);
         });
         coverUrl = coverUpload.secure_url;
       }
 
-      // Save song entry in MongoDB
+      // Save to DB
       const newSong = await Song.create({
         title: req.body.title || songFile.originalname,
         artist: req.body.artist || "Unknown Artist",
         album: req.body.album || "Singles",
-        cover: coverUrl || req.body.cover || "",
-        url: songUpload.secure_url, // ✅ Store in DB, but DON'T expose
-        publicId: songUpload.public_id, // ✅ Store in DB, but DON'T expose
+        cover: coverUrl || "",
+        url: songUpload.secure_url,
+        publicId: songUpload.public_id,
         uploadedBy: user._id,
       });
 
-      // ✅ Return song WITHOUT url and publicId
       const songResponse = newSong.toObject();
       delete songResponse.url;
       delete songResponse.publicId;
 
-      return res.json({
-        message: "✅ Song uploaded successfully",
-        song: songResponse,
-      });
+      res.json({ message: "✅ Song uploaded", song: songResponse });
     } catch (err) {
-      console.error("Song upload error:", err);
-      return res.status(500).json({ error: err.message || "Upload failed" });
+      console.error("Upload error:", err);
+      res.status(500).json({ error: "Upload failed" });
     }
   }
 );
 
-/**
- * 🎧 Get all songs (public, like Spotify)
- * ✅ NEVER expose url and publicId
- */
+/* ──────────────────────────────── PUBLIC ROUTES ──────────────────────────────── */
+
+// 🎧 Fetch all songs (hide URL)
 router.get("/", async (req, res) => {
   try {
-    const songs = await Song.find().populate("uploadedBy", "username displayName").select("-url -publicId"); // ❌ EXCLUDE these fields
-
-    return res.json({ songs });
-  } catch (err) {
-    console.error("Fetch songs error:", err);
-    return res.status(500).json({ error: "Failed to fetch songs" });
-  }
-});
-
-// routes/music.js
-router.get("/stream/:id", authMiddleware, async (req, res) => {
-  try {
-    // ✅ Debug: Log incoming request
-    console.log("🎵 Stream request from user:", req.user?.id);
-    console.log("🍪 Cookies received:", Object.keys(req.cookies));
-    console.log("📍 Stream ID:", req.params.id);
-
-    // Check if authenticated
-    if (!req.user) {
-      return res.status(401).json({ error: "Unauthorized - No user" });
-    }
-
-    const song = await Song.findById(req.params.id).select("+url");
-
-    if (!song || !song.url) {
-      return res.status(404).json({ error: "Song not found" });
-    }
-
-    console.log("✅ Authorized - Streaming:", song.title);
-
-    const fileRes = await fetch(song.url);
-    if (!fileRes.ok) {
-      return res.status(500).json({ error: "Failed to fetch audio" });
-    }
-
-    // ✅ Set correct headers
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Content-Disposition", "inline");
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-
-    res.status(200);
-    fileRes.body.pipe(res);
-  } catch (err) {
-    console.error("❌ Stream error:", err.message);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-/**
- * 🔍 Search songs by title, artist, or album
- * ✅ NEVER expose url and publicId
- */
-router.get("/search", async (req, res) => {
-  try {
-    const query = req.query.q?.trim() || "";
-    if (!query) return res.json({ songs: [] });
-
-    const songs = await Song.find({
-      $or: [{ title: { $regex: query, $options: "i" } }, { artist: { $regex: query, $options: "i" } }, { album: { $regex: query, $options: "i" } }],
-    })
-      .populate("uploadedBy", "username displayName")
-      .select("-url -publicId"); // ❌ EXCLUDE these fields
-
+    const songs = await Song.find().populate("uploadedBy", "username displayName").select("-url -publicId");
     res.json({ songs });
   } catch (err) {
-    console.error("Search error:", err);
+    res.status(500).json({ error: "Failed to fetch songs" });
+  }
+});
+
+// 🔍 Search songs
+router.get("/search", async (req, res) => {
+  try {
+    const q = req.query.q?.trim() || "";
+    if (!q) return res.json({ songs: [] });
+    const songs = await Song.find({
+      $or: [{ title: { $regex: q, $options: "i" } }, { artist: { $regex: q, $options: "i" } }, { album: { $regex: q, $options: "i" } }],
+    })
+      .populate("uploadedBy", "username displayName")
+      .select("-url -publicId");
+    res.json({ songs });
+  } catch {
     res.status(500).json({ error: "Failed to search songs" });
   }
 });
 
-/**
- * 💿 Get songs by album name
- * ✅ NEVER expose url and publicId
- */
+// 💿 Album view
 router.get("/album/:albumName", async (req, res) => {
   try {
-    const { albumName } = req.params;
-    const songs = await Song.find({ album: albumName }).populate("uploadedBy", "username displayName").select("-url -publicId"); // ❌ EXCLUDE these fields
-
-    if (!songs.length) {
-      return res.status(404).json({ error: "No songs found for this album" });
-    }
-    res.json({ album: albumName, songs });
-  } catch (err) {
-    console.error("Album fetch error:", err);
+    const songs = await Song.find({ album: req.params.albumName }).populate("uploadedBy", "username displayName").select("-url -publicId");
+    if (!songs.length) return res.status(404).json({ error: "No songs found for this album" });
+    res.json({ album: req.params.albumName, songs });
+  } catch {
     res.status(500).json({ error: "Failed to fetch album songs" });
   }
 });
 
-/**
- * ❌ Delete a song (only uploader or admin)
- */
+/* ──────────────────────────────── SECURE STREAMING ──────────────────────────────── */
+
+// 🎟️ Generate short-lived token
+router.get("/stream-token/:id", authMiddleware, async (req, res) => {
+  try {
+    const exists = await Song.exists({ _id: req.params.id });
+    if (!exists) return res.status(404).json({ error: "Song not found" });
+
+    const token = signStreamToken(req.user.id, req.params.id, 60); // 1 min
+    res.json({ token, expiresIn: 60 });
+  } catch (err) {
+    console.error("Token error:", err);
+    res.status(500).json({ error: "Failed to generate token" });
+  }
+});
+
+// 🎵 Secure streaming route
+router.get("/stream/:id", authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const token = req.query.t || req.query.token;
+    if (!token) return res.status(401).json({ error: "Missing stream token" });
+
+    let payload;
+    try {
+      payload = verifyStreamToken(token);
+    } catch {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+
+    if (payload.sid !== id || payload.sub !== req.user.id) return res.status(401).json({ error: "Token mismatch" });
+
+    const song = await Song.findById(id).select("+url");
+    if (!song || !song.url) return res.status(404).json({ error: "Song not found" });
+
+    const clientRange = req.headers.range;
+    const headers = clientRange ? { Range: clientRange } : {};
+
+    const upstream = await fetch(song.url, { headers });
+    if (!upstream.ok && upstream.status !== 206) return res.status(502).json({ error: "Upstream fetch failed" });
+
+    const ct = upstream.headers.get("content-type") || "audio/mpeg";
+    const cl = upstream.headers.get("content-length");
+    const cr = upstream.headers.get("content-range");
+    const status = clientRange && cr ? 206 : upstream.status;
+
+    res.status(status);
+    res.setHeader("Content-Type", ct);
+    if (cl) res.setHeader("Content-Length", cl);
+    if (cr) res.setHeader("Content-Range", cr);
+    res.setHeader("Accept-Ranges", "bytes");
+
+    // 🚫 No caching or downloading
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Content-Disposition", "inline");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+
+    upstream.body.pipe(res);
+  } catch (err) {
+    console.error("Stream error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/* ──────────────────────────────── ADMIN ROUTES ──────────────────────────────── */
+
+// ❌ Delete
 router.delete("/:id", authMiddleware, async (req, res) => {
   try {
     const song = await Song.findById(req.params.id).select("+publicId");
@@ -221,61 +230,47 @@ router.delete("/:id", authMiddleware, async (req, res) => {
     if (!user) return res.status(404).json({ error: "User not found" });
 
     if (song.uploadedBy.toString() !== user._id.toString() && !user.roles.includes("admin")) {
-      return res.status(403).json({ error: "Not authorized to delete this song" });
+      return res.status(403).json({ error: "Not authorized" });
     }
 
     try {
-      await cloudinary.uploader.destroy(song.publicId, { resource_type: "video" });
+      await cloudinary.uploader.destroy(song.publicId, {
+        resource_type: "video",
+      });
     } catch (err) {
-      console.warn("⚠️ Cloudinary delete failed:", err.message);
+      console.warn("Cloudinary delete failed:", err.message);
     }
 
     await song.deleteOne();
-    res.json({ message: "Song deleted successfully" });
+    res.json({ message: "Song deleted" });
   } catch (err) {
-    console.error("Delete song error:", err);
     res.status(500).json({ error: "Failed to delete song" });
   }
 });
 
-/**
- * ✏️ Update song details (only uploader or admin)
- * ✅ Don't expose url and publicId
- */
+// ✏️ Update metadata
 router.patch("/:id", authMiddleware, async (req, res) => {
   try {
-    const { id } = req.params;
-    const updateData = req.body;
+    const update = { ...req.body };
+    delete update.url;
+    delete update.publicId;
 
-    // ✅ Prevent users from updating these fields
-    delete updateData.url;
-    delete updateData.publicId;
-
-    const song = await Song.findById(id);
-    if (!song) {
-      return res.status(404).json({ error: "Song not found" });
-    }
+    const song = await Song.findById(req.params.id);
+    if (!song) return res.status(404).json({ error: "Song not found" });
 
     const user = await User.findById(req.user.id);
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
     if (song.uploadedBy.toString() !== user._id.toString() && !user.roles.includes("admin")) {
-      return res.status(403).json({ error: "Not authorized to update this song" });
+      return res.status(403).json({ error: "Not authorized" });
     }
 
-    Object.assign(song, updateData);
+    Object.assign(song, update);
     await song.save();
 
-    // ✅ Return song WITHOUT url and publicId
-    const songResponse = song.toObject();
-    delete songResponse.url;
-    delete songResponse.publicId;
-
-    res.json({ message: "Song updated successfully", song: songResponse });
+    const out = song.toObject();
+    delete out.url;
+    delete out.publicId;
+    res.json({ message: "Song updated", song: out });
   } catch (err) {
-    console.error("Update song error:", err);
     res.status(500).json({ error: "Failed to update song" });
   }
 });
