@@ -170,6 +170,7 @@ router.get("/stream-token/:id", authMiddleware, async (req, res) => {
 
 // 🎵 Secure streaming route
 // 🎵 Secure streaming route (dual-auth: stream token OR user session)
+// 🎵 Secure streaming route (Vercel-compatible)
 router.get("/stream/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -177,7 +178,7 @@ router.get("/stream/:id", async (req, res) => {
 
     let userId = null;
 
-    // ✅ 1. Try stream token first
+    // ✅ Stream token check
     if (token) {
       try {
         const payload = verifyStreamToken(token);
@@ -185,12 +186,11 @@ router.get("/stream/:id", async (req, res) => {
           return res.status(403).json({ error: "Invalid stream token" });
         }
         userId = payload.sub;
-      } catch (err) {
-        console.warn("❌ Invalid stream token:", err.message);
+      } catch {
         return res.status(401).json({ error: "Invalid or expired stream token" });
       }
     } else {
-      // ✅ 2. Fall back to normal auth middleware
+      // ✅ Fallback to normal auth session
       await new Promise((resolve, reject) => {
         authMiddleware(req, res, (err) => (err ? reject(err) : resolve()));
       });
@@ -198,46 +198,30 @@ router.get("/stream/:id", async (req, res) => {
     }
 
     if (!userId) {
-      return res.status(401).json({ error: "Unauthorized - no valid token" });
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
-    // ✅ Fetch song
     const song = await Song.findById(id).select("+url");
     if (!song || !song.url) {
       return res.status(404).json({ error: "Song not found" });
     }
 
-    // ✅ Request file from Cloudinary
-    const clientRange = req.headers.range;
-    const headers = clientRange ? { Range: clientRange } : {};
-    const upstream = await fetch(song.url, { headers });
-
-    if (!upstream.ok && upstream.status !== 206) {
-      console.error("❌ Cloudinary fetch failed:", upstream.status, upstream.statusText);
-      return res.status(502).json({ error: "Failed to fetch audio" });
+    // ✅ Stream from Cloudinary securely
+    const upstream = await fetch(song.url);
+    if (!upstream.ok) {
+      return res.status(502).json({ error: "Failed to fetch audio from Cloudinary" });
     }
 
-    // ✅ Set proper streaming headers
-    const contentType = upstream.headers.get("content-type") || "audio/mpeg";
-    const contentLength = upstream.headers.get("content-length");
-    const contentRange = upstream.headers.get("content-range");
-    const status = clientRange && contentRange ? 206 : 200;
-
-    res.status(status);
-    res.setHeader("Content-Type", contentType);
-    if (contentLength) res.setHeader("Content-Length", contentLength);
-    if (contentRange) res.setHeader("Content-Range", contentRange);
-    res.setHeader("Accept-Ranges", "bytes");
-
-    // 🚫 No caching / saving
+    // ✅ Set headers (important for <audio> support)
+    res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
-    res.setHeader("Pragma", "no-cache");
-    res.setHeader("Expires", "0");
-    res.setHeader("Content-Disposition", "inline");
     res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Access-Control-Allow-Origin", process.env.FRONTEND_URL);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Content-Disposition", "inline");
 
-    // ✅ Pipe Cloudinary stream
-    upstream.body.pipe(res);
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    res.status(200).send(buffer);
   } catch (err) {
     console.error("Stream error:", err);
     res.status(500).json({ error: "Internal server error" });
