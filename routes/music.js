@@ -168,63 +168,64 @@ router.get("/stream-token/:id", authMiddleware, async (req, res) => {
   }
 });
 
-// 🎵 Secure streaming route
-// 🎵 Secure streaming route (dual-auth: stream token OR user session)
-// 🎵 Secure streaming route (Vercel-compatible)
+/* ──────────────────────────────── SECURE STREAMING ──────────────────────────────── */
 router.get("/stream/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const token = req.query.t || req.query.token;
 
-    let userId = null;
+    // 🔐 Verify token
+    if (!token) return res.status(401).json({ error: "Missing stream token" });
 
-    // ✅ Stream token check
-    if (token) {
-      try {
-        const payload = verifyStreamToken(token);
-        if (payload.sid !== id) {
-          return res.status(403).json({ error: "Invalid stream token" });
-        }
-        userId = payload.sub;
-      } catch {
-        return res.status(401).json({ error: "Invalid or expired stream token" });
-      }
-    } else {
-      // ✅ Fallback to normal auth session
-      await new Promise((resolve, reject) => {
-        authMiddleware(req, res, (err) => (err ? reject(err) : resolve()));
-      });
-      userId = req.user?.id;
+    let payload;
+    try {
+      payload = verifyStreamToken(token);
+    } catch {
+      return res.status(401).json({ error: "Invalid or expired stream token" });
     }
 
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
+    if (payload.sid !== id) return res.status(403).json({ error: "Token mismatch" });
 
+    // 🧠 Find the song
     const song = await Song.findById(id).select("+url");
     if (!song || !song.url) {
       return res.status(404).json({ error: "Song not found" });
     }
 
-    // ✅ Stream from Cloudinary securely
+    // 🎧 Fetch from Cloudinary
     const upstream = await fetch(song.url);
     if (!upstream.ok) {
-      return res.status(502).json({ error: "Failed to fetch audio from Cloudinary" });
+      console.error("Cloudinary fetch failed:", upstream.status);
+      return res.status(502).json({ error: "Cloudinary fetch failed" });
     }
 
-    // ✅ Set headers (important for <audio> support)
-    res.setHeader("Content-Type", "audio/mpeg");
+    // ✅ Detect correct MIME type
+    let contentType = upstream.headers.get("content-type") || "";
+    if (!contentType.startsWith("audio/") && !contentType.startsWith("video/")) {
+      console.warn("⚠️ Unexpected MIME type:", contentType);
+      contentType = "audio/mpeg"; // fallback for safety
+    }
+
+    // ⬇️ Buffer entire audio (works with Vercel)
+    const arrayBuffer = await upstream.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    // ✅ Send proper headers
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Length", buffer.length);
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    res.setHeader("Content-Disposition", 'inline; filename="song.mp3"');
     res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Access-Control-Allow-Origin", process.env.FRONTEND_URL);
     res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Content-Disposition", "inline");
 
-    const buffer = Buffer.from(await upstream.arrayBuffer());
-    res.status(200).send(buffer);
+    // ✅ Return audio data
+    res.status(200).end(buffer);
   } catch (err) {
-    console.error("Stream error:", err);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("❌ Stream error:", err);
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.status(500).end();
   }
 });
 
