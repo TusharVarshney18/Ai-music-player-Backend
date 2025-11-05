@@ -171,12 +171,12 @@ router.get("/stream-token/:id", async (req, res) => {
 
 /* ──────────────────────────────── SECURE STREAMING ──────────────────────────────── */
 
+// ───────────────── SECURE STREAMING (public delivery with JWT gate) ─────────────────
 router.get("/stream/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const token = req.query.t || req.query.token;
 
-    // 🔐 Verify stream token
     if (!token) return res.status(401).json({ error: "Missing stream token" });
 
     let payload;
@@ -185,42 +185,32 @@ router.get("/stream/:id", async (req, res) => {
     } catch {
       return res.status(401).json({ error: "Invalid or expired stream token" });
     }
-
     if (payload.sid !== id) return res.status(403).json({ error: "Token mismatch" });
 
-    // 🧠 Fetch song from DB
-    const song = await Song.findById(id).select("+url +publicId");
-    if (!song || !song.publicId) {
-      return res.status(404).json({ error: "Song not found" });
-    }
+    // find song
+    const song = await Song.findById(id).select("+publicId");
+    if (!song || !song.publicId) return res.status(404).json({ error: "Song not found" });
 
-    // ✅ Generate a *private download URL* (correct Cloudinary method)
-    const signedUrl = cloudinary.utils.private_download_url(song.publicId, "mp3", {
+    // Don't force format unless you must; Cloudinary/asset is already MP3.
+    const publicUrl = cloudinary.url(song.publicId, {
       resource_type: "video",
-      type: "authenticated",
-      expires_at: Math.floor(Date.now() / 1000) + 300, // 5 mins
+      type: "upload",
+      secure: true,
+      sign_url: false, // public delivery, no signature needed
+      // format: "mp3", // uncomment only if your publicId has no extension and you want to force mp3
     });
 
-    // ✅ Fetch from Cloudinary — backend acts as proxy
-    const upstream = await fetch(signedUrl);
-    if (!upstream.ok) {
-      const errorText = await upstream.text();
-      console.error("Cloudinary fetch failed:", upstream.status, errorText.slice(0, 150));
-      return res.status(502).json({ error: "Upstream fetch failed", detail: upstream.statusText });
+    // CORS headers for the preflight that hits your backend, then redirect
+    const origin = req.headers.origin;
+    if (process.env.FRONTEND_ORIGIN && origin === process.env.FRONTEND_ORIGIN) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
     }
 
-    // ✅ Stream directly to client
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Cache-Control", "no-store");
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Access-Control-Allow-Origin", process.env.FRONTEND_ORIGIN || "*");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-
-    // Stream directly — no full buffering!
-    upstream.body.pipe(res);
+    return res.redirect(302, publicUrl);
   } catch (err) {
     console.error("❌ Stream error:", err);
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
