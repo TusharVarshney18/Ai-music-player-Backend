@@ -18,13 +18,13 @@ const app = express();
 
 const allowedOrigins = [
   "http://localhost:3000",
-  "https://ai-music-player-frontend.vercel.app", // frontend
-  "https://ai-music-player-backend.vercel.app", // backend (vercel)
+  "https://ai-music-player-frontend.vercel.app", // frontend (Vercel)
+  "https://ai-music-player-backend.vercel.app", // backend (Vercel)
   "http://localhost:5000",
   "https://www.postman.com",
 ];
 
-// Trust proxy headers (needed for Vercel, Render, Nginx, etc.)
+// ✅ Trust proxy headers (needed for Vercel, Render, etc.)
 app.set("trust proxy", 1);
 
 // ---------- Middlewares ----------
@@ -51,8 +51,8 @@ app.use(
   })
 );
 
-// ✅ Explicitly handle preflight requests (important for Vercel)
-app.options("*", (req, res) => {
+// ✅ FIX for Vercel: use regex instead of '*' for preflight
+app.options(/.*/, (req, res) => {
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
@@ -73,7 +73,7 @@ app.use("/api/playlist", playlistRoutes);
 
 // Test route
 app.get("/", (req, res) => {
-  res.json({ ok: true });
+  res.json({ ok: true, message: "🎵 AI Music Player backend is running" });
 });
 
 // ---------- DB & Server ----------
@@ -83,9 +83,9 @@ const MONGO_URI = process.env.MONGO_URI;
 mongoose
   .connect(MONGO_URI, { dbName: process.env.MONGO_DB || "music_app" })
   .then(() => {
-    app.listen(PORT, () => console.log(`✅ Server running on http://localhost:${PORT}`, `\n✅ Connected to MongoDB`));
+    app.listen(PORT, () => console.log(`✅ Server running on http://localhost:${PORT}\n✅ Connected to MongoDB`));
   })
   .catch((err) => {
-    console.error("MongoDB connection error:", err);
+    console.error("❌ MongoDB connection error:", err);
     process.exit(1);
   });
