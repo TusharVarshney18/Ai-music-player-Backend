@@ -188,39 +188,36 @@ router.get("/stream/:id", async (req, res) => {
 
     if (payload.sid !== id) return res.status(403).json({ error: "Token mismatch" });
 
-    // 🧠 Fetch song with hidden Cloudinary fields
+    // 🧠 Fetch song from DB
     const song = await Song.findById(id).select("+url +publicId");
     if (!song || !song.publicId) {
       return res.status(404).json({ error: "Song not found" });
     }
 
-    const signedDeliveryUrl = cloudinary.utils.private_download_url(song.publicId, "mp3", {
+    // ✅ Generate a *private download URL* (correct Cloudinary method)
+    const signedUrl = cloudinary.utils.private_download_url(song.publicId, "mp3", {
       resource_type: "video",
       type: "authenticated",
-      expires_at: Math.floor(Date.now() / 1000) + 300,
+      expires_at: Math.floor(Date.now() / 1000) + 300, // 5 mins
     });
 
-    // 🎧 Fetch from Cloudinary (the backend acts as a proxy)
-    const upstream = await fetch(signedDeliveryUrl, { redirect: "follow" });
+    // ✅ Fetch from Cloudinary — backend acts as proxy
+    const upstream = await fetch(signedUrl);
     if (!upstream.ok) {
-      console.error("Cloudinary fetch failed:", upstream.status);
-      return res.status(502).json({ error: "Upstream fetch failed" });
+      const errorText = await upstream.text();
+      console.error("Cloudinary fetch failed:", upstream.status, errorText.slice(0, 150));
+      return res.status(502).json({ error: "Upstream fetch failed", detail: upstream.statusText });
     }
 
-    const arrayBuffer = await upstream.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    // ✅ Stream response headers
+    // ✅ Stream directly to client
     res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Content-Length", buffer.length);
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
-    res.setHeader("Content-Disposition", 'inline; filename="song.mp3"');
+    res.setHeader("Cache-Control", "no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Access-Control-Allow-Origin", process.env.FRONTEND_ORIGIN);
+    res.setHeader("Access-Control-Allow-Origin", process.env.FRONTEND_ORIGIN || "*");
     res.setHeader("Access-Control-Allow-Credentials", "true");
 
-    // ✅ Send audio stream
-    res.status(200).end(buffer);
+    // Stream directly — no full buffering!
+    upstream.body.pipe(res);
   } catch (err) {
     console.error("❌ Stream error:", err);
     res.status(500).json({ error: "Internal server error" });
