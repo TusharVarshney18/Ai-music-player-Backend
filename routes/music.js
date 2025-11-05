@@ -169,7 +169,6 @@ router.get("/stream-token/:id", authMiddleware, async (req, res) => {
 });
 
 /* ──────────────────────────────── SECURE STREAMING ──────────────────────────────── */
-import { v2 as cloudinary } from "cloudinary";
 
 router.get("/stream/:id", async (req, res) => {
   try {
