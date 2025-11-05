@@ -155,13 +155,14 @@ router.get("/album/:albumName", async (req, res) => {
 /* ──────────────────────────────── SECURE STREAMING ──────────────────────────────── */
 
 // 🎟️ Generate short-lived token
-router.get("/stream-token/:id", authMiddleware, async (req, res) => {
+router.get("/stream-token/:id", async (req, res) => {
   try {
     const exists = await Song.exists({ _id: req.params.id });
     if (!exists) return res.status(404).json({ error: "Song not found" });
 
-    const token = signStreamToken(req.user.id, req.params.id, 60); // 1 min
-    res.json({ token, expiresIn: 60 });
+    // Allow token creation for anyone (no login required)
+    const token = signStreamToken("public-user", req.params.id, 300); // 5 min validity
+    res.json({ token, expiresIn: 300 });
   } catch (err) {
     console.error("Token error:", err);
     res.status(500).json({ error: "Failed to generate token" });
@@ -193,13 +194,10 @@ router.get("/stream/:id", async (req, res) => {
       return res.status(404).json({ error: "Song not found" });
     }
 
-    // ✅ Generate a signed Cloudinary *delivery* URL (not API URL)
-    const signedDeliveryUrl = cloudinary.url(song.publicId, {
+    const signedDeliveryUrl = cloudinary.utils.private_download_url(song.publicId, "mp3", {
       resource_type: "video",
       type: "authenticated",
-      secure: true,
-      sign_url: true,
-      format: "mp3", // ensure mp3 format
+      expires_at: Math.floor(Date.now() / 1000) + 300,
     });
 
     // 🎧 Fetch from Cloudinary (the backend acts as a proxy)
