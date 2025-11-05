@@ -7,7 +7,7 @@ import mongoose from "mongoose";
 import helmet from "helmet";
 import hpp from "hpp";
 import cookieParser from "cookie-parser";
-import musicRoutes from "./routes/music.js"; // 👈 add this
+import musicRoutes from "./routes/music.js";
 import avatarRoutes from "./routes/avatar.js";
 import authRoutes from "./routes/auth.js";
 import chatRouter from "./routes/chat.js";
@@ -41,7 +41,7 @@ app.use(
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        console.log("❌ CORS blocked:", origin);
+        console.warn("❌ CORS blocked:", origin);
         callback(new Error("Not allowed by CORS"));
       }
     },
@@ -50,6 +50,18 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
+// ✅ Explicitly handle preflight requests (important for Vercel)
+app.options("*", (req, res) => {
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.status(204).end();
+});
 
 // ---------- Routes ----------
 app.use("/api/auth", authRoutes);
