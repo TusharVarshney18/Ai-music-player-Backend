@@ -171,7 +171,7 @@ router.get("/stream-token/:id", async (req, res) => {
 
 /* ──────────────────────────────── SECURE STREAMING ──────────────────────────────── */
 
-// ───────────────── SECURE STREAMING (public delivery with JWT gate) ─────────────────
+// Replace your /stream/:id endpoint with this:
 router.get("/stream/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -187,27 +187,20 @@ router.get("/stream/:id", async (req, res) => {
     }
     if (payload.sid !== id) return res.status(403).json({ error: "Token mismatch" });
 
-    // find song
     const song = await Song.findById(id).select("+publicId");
     if (!song || !song.publicId) return res.status(404).json({ error: "Song not found" });
 
-    // Don't force format unless you must; Cloudinary/asset is already MP3.
-    const publicUrl = cloudinary.url(song.publicId, {
+    // Generate a signed URL valid for 1 hour
+    const signedUrl = cloudinary.url(song.publicId, {
       resource_type: "video",
-      type: "upload",
+      type: "authenticated",
+      sign_url: true,
       secure: true,
-      sign_url: false, // public delivery, no signature needed
-      // format: "mp3", // uncomment only if your publicId has no extension and you want to force mp3
+      expires_at: Math.floor(Date.now() / 1000) + 3600, // 1 hour
     });
 
-    // CORS headers for the preflight that hits your backend, then redirect
-    const origin = req.headers.origin;
-    if (process.env.FRONTEND_ORIGIN && origin === process.env.FRONTEND_ORIGIN) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Access-Control-Allow-Credentials", "true");
-    }
-
-    return res.redirect(302, publicUrl);
+    // Return URL as JSON instead of redirecting
+    res.json({ url: signedUrl });
   } catch (err) {
     console.error("❌ Stream error:", err);
     return res.status(500).json({ error: "Internal server error" });
