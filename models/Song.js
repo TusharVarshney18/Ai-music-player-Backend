@@ -4,14 +4,17 @@ const SongSchema = new mongoose.Schema(
   {
     title: { type: String, required: true },
     artist: { type: String, default: "Unknown Artist" },
-    url: { type: String, required: true }, // Cloudinary link
-    publicId: { type: String, required: true }, // Cloudinary ID for deletion
-    cover: { type: String, default: "" }, // optional song cover image
+
+    // 🔒 Hide these from all API responses by default
+    url: { type: String, required: true, select: false },
+    publicId: { type: String, required: true, select: false },
+
+    cover: { type: String, default: "" },
     album: { type: String, default: "Singles" },
-    uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // reference uploader
+
+    uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   },
   { timestamps: true }
 );
 
-const Song = mongoose.model("Song", SongSchema);
-export default Song;
+export default mongoose.model("Song", SongSchema);
