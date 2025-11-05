@@ -169,12 +169,14 @@ router.get("/stream-token/:id", authMiddleware, async (req, res) => {
 });
 
 /* ──────────────────────────────── SECURE STREAMING ──────────────────────────────── */
+import { v2 as cloudinary } from "cloudinary";
+
 router.get("/stream/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const token = req.query.t || req.query.token;
 
-    // 🔐 Verify token
+    // 🔒 Verify short-lived stream token
     if (!token) return res.status(401).json({ error: "Missing stream token" });
 
     let payload;
@@ -184,48 +186,47 @@ router.get("/stream/:id", async (req, res) => {
       return res.status(401).json({ error: "Invalid or expired stream token" });
     }
 
-    if (payload.sid !== id) return res.status(403).json({ error: "Token mismatch" });
+    if (payload.sid !== id) {
+      return res.status(403).json({ error: "Token mismatch" });
+    }
 
-    // 🧠 Find the song
-    const song = await Song.findById(id).select("+url");
-    if (!song || !song.url) {
+    // 🧠 Find song and get Cloudinary ID
+    const song = await Song.findById(id).select("+url +publicId");
+    if (!song || !song.publicId) {
       return res.status(404).json({ error: "Song not found" });
     }
 
-    // 🎧 Fetch from Cloudinary
-    const upstream = await fetch(song.url);
+    // 🎟️ Generate a signed Cloudinary URL (5 min expiry)
+    const signedUrl = cloudinary.utils.private_download_url(song.publicId, "mp3", {
+      resource_type: "video",
+      type: "authenticated",
+      expires_at: Math.floor(Date.now() / 1000) + 300, // 5 mins
+    });
+
+    // 🎧 Fetch from signed Cloudinary URL
+    const upstream = await fetch(signedUrl);
     if (!upstream.ok) {
       console.error("Cloudinary fetch failed:", upstream.status);
-      return res.status(502).json({ error: "Cloudinary fetch failed" });
+      return res.status(502).json({ error: "Upstream fetch failed" });
     }
 
-    // ✅ Detect correct MIME type
-    let contentType = upstream.headers.get("content-type") || "";
-    if (!contentType.startsWith("audio/") && !contentType.startsWith("video/")) {
-      console.warn("⚠️ Unexpected MIME type:", contentType);
-      contentType = "audio/mpeg"; // fallback for safety
-    }
-
-    // ⬇️ Buffer entire audio (works with Vercel)
     const arrayBuffer = await upstream.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // ✅ Send proper headers
-    res.setHeader("Content-Type", contentType);
+    // ✅ Headers
+    res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Content-Length", buffer.length);
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
-    res.setHeader("Content-Disposition", 'inline; filename="song.mp3"');
+    res.setHeader("Content-Disposition", 'inline; filename="track.mp3"');
     res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Access-Control-Allow-Origin", process.env.FRONTEND_ORIGIN);
     res.setHeader("Access-Control-Allow-Credentials", "true");
 
-    // ✅ Return audio data
+    // ✅ Send buffer (works on Vercel)
     res.status(200).end(buffer);
   } catch (err) {
     console.error("❌ Stream error:", err);
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.status(500).end();
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
