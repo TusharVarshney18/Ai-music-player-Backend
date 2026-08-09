@@ -85,6 +85,7 @@ router.post(
         title: req.body.title || songFile.originalname,
         artist: req.body.artist || "Unknown Artist",
         album: req.body.album || "Singles",
+        genre: req.body.genre || "Unknown",
         cover: coverUrl || "",
         url: songUpload.secure_url,
         publicId: songUpload.public_id,
