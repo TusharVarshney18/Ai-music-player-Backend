@@ -5,12 +5,16 @@ dotenv.config();
 
 const router = express.Router();
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 router.post("/", async (req, res) => {
    try {
       const { message } = req.body;
       if (!message) return res.status(400).json({ error: "Message is required" });
+
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) return res.status(500).json({ error: "Chat is not configured (missing OPENAI_API_KEY)" });
+
+      // Create the client lazily so the server can boot without an API key
+      const client = new OpenAI({ apiKey });
 
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");

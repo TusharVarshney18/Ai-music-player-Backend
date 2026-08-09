@@ -3,6 +3,7 @@ import multer from "multer";
 import cloudinary from "../config/cloudinary.js";
 import Song from "../models/Song.js";
 import User from "../models/User.js";
+import ListeningEvent from "../models/ListeningEvent.js";
 import authMiddleware from "../middleware/auth.js";
 
 const router = express.Router();
@@ -100,13 +101,32 @@ router.post(
 
 /* ──────────────────────────────── FETCH SONGS ──────────────────────────────── */
 
-// 🎧 All songs
+// 🎧 All songs (optional ?genre= filter)
 router.get("/", async (req, res) => {
   try {
-    const songs = await Song.find().populate("uploadedBy", "username displayName");
+    const { genre, limit = 100, sort } = req.query;
+    const query = {};
+    if (genre) query.genre = genre;
+
+    let songsQuery = Song.find(query).populate("uploadedBy", "username displayName");
+    if (sort === "popular") songsQuery = songsQuery.sort({ plays: -1, likesCount: -1 });
+    else if (sort === "recent") songsQuery = songsQuery.sort({ createdAt: -1 });
+    else songsQuery = songsQuery.sort({ createdAt: -1 });
+
+    const songs = await songsQuery.limit(parseInt(limit, 10) || 100);
     res.json({ songs });
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch songs" });
+  }
+});
+
+// 🏷️ All genres (distinct)
+router.get("/genres", async (req, res) => {
+  try {
+    const genres = await Song.distinct("genre");
+    res.json({ genres: genres.filter(Boolean).sort() });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch genres" });
   }
 });
 
@@ -135,6 +155,30 @@ router.get("/album/:albumName", async (req, res) => {
     res.json({ album: req.params.albumName, songs });
   } catch {
     res.status(500).json({ error: "Failed to fetch album songs" });
+  }
+});
+
+// ▶️ Track a play (increments counter + records listening event)
+router.post("/:id/play", authMiddleware, async (req, res) => {
+  try {
+    const song = await Song.findById(req.params.id);
+    if (!song) return res.status(404).json({ error: "Song not found" });
+
+    const durationSec = Math.max(0, Math.min(parseFloat(req.body?.duration) || 0, song.duration || 0));
+
+    song.plays += 1;
+    await song.save();
+
+    try {
+      await ListeningEvent.create({ userId: req.user.id, songId: song._id, durationSec });
+    } catch (err) {
+      console.warn("ListeningEvent record failed:", err.message);
+    }
+
+    res.json({ plays: song.plays });
+  } catch (err) {
+    console.error("Play tracking error:", err);
+    res.status(500).json({ error: "Failed to track play" });
   }
 });
 

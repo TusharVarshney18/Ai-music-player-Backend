@@ -13,16 +13,20 @@ import authRoutes from "./routes/auth.js";
 import chatRouter from "./routes/chat.js";
 import uploadRoutes from "./routes/upload.js";
 import playlistRoutes from "./routes/playlists.js";
+import likesRoutes from "./routes/likes.js";
+import statsRoutes from "./routes/stats.js";
+import adminRoutes from "./routes/admin.js";
 
 const app = express();
 
 const allowedOrigins = [
+  process.env.FRONTEND_ORIGIN, // frontend (set in .env / Vercel)
   "http://localhost:3000",
   "https://ai-music-player-frontend.vercel.app", // frontend (Vercel)
   "https://ai-music-player-backend.vercel.app", // backend (Vercel)
   "http://localhost:5000",
   "https://www.postman.com",
-];
+].filter(Boolean);
 
 // ✅ Trust proxy headers (needed for Vercel, Render, etc.)
 app.set("trust proxy", 1);
@@ -70,6 +74,9 @@ app.use("/api/music", musicRoutes);
 app.use("/api/chat", chatRouter);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/playlist", playlistRoutes);
+app.use("/api/likes", likesRoutes);
+app.use("/api/stats", statsRoutes);
+app.use("/api/admin", adminRoutes);
 
 // Test route
 app.get("/", (req, res) => {
